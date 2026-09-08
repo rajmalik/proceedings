@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Services · Krishes Inc.</title>
+  <meta name="description" content="Gemini AI solutions, product building, and consulting. The same team, stack and standard we use on our own products." />
+  <meta name="theme-color" content="#ffffff" />
+
+  <link rel="icon" href="krisheslogo.png" />
+  <link rel="apple-touch-icon" href="krisheslogo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="nav" id="nav">
+    <div class="nav__inner">
+      <a class="nav__brand" href="index.html" aria-label="Krishes Inc. home">
+        <img class="nav__logo" src="krisheslogo.png" alt="" width="24" height="24" />
+        Krishes
+      </a>
+      <nav class="nav__right" aria-label="Primary">
+        <a class="nav__link" href="about.html">About</a>
+        <a class="nav__link" href="products.html">Products</a>
+        <a class="nav__link" href="services.html" aria-current="page">Services</a>
+      </nav>
+      <a class="nav__cta" href="index.html#contact">Contact Us</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="services" aria-labelledby="services-title">
+      <div class="services__inner">
+        <header class="services__head">
+          <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot" aria-hidden="true"></span> Services</p>
+          <h1 class="services__title reveal" id="services-title" style="--i:1">
+            We build our own products. When we take on client work, it is the
+            same team, the same stack, and the same standard.
+          </h1>
+          <p class="services__lede reveal" style="--i:2">
+            Most AI work stalls in the gap between a convincing demo and
+            something you can put in front of real users. We have crossed that
+            gap with our own product, in a regulated domain, and that is what we
+            bring to a client engagement.
+          </p>
+        </header>
+
+        <div class="services__blocks">
+          <article class="block reveal" style="--i:0">
+            <h2 class="block__title">Gemini AI Solutions</h2>
+            <div class="block__text">
+              <p class="block__lead">AI you can defend to a user, a lawyer, or a regulator.</p>
+              <p class="block__body">
+                We build grounded AI systems on Vertex AI and Gemini, where
+                every answer traces back to a source. Retrieval that actually
+                retrieves, generation that cites, and guardrails written into
+                the prompt rather than bolted on afterwards.
+              </p>
+              <ul class="block__list">
+                <li>Grounded RAG on Vertex AI Search, with citations and relevance tuning</li>
+                <li>Structured extraction and auto-tagging against a controlled vocabulary</li>
+                <li>Conversational onboarding and intent classification, with deterministic fallbacks</li>
+                <li>Content moderation pipelines, wordlist plus model</li>
+                <li>Evaluation and guardrails designed in from the first commit</li>
+              </ul>
+            </div>
+          </article>
+
+          <article class="block reveal" style="--i:1">
+            <h2 class="block__title">Product Building</h2>
+            <div class="block__text">
+              <p class="block__lead">From an idea to the App Store, by one team.</p>
+              <p class="block__body">
+                We build the whole product, not a layer of it. The interface
+                people touch and the intelligence behind it live in the same
+                codebase, are held to the same standard, and are tested
+                together.
+              </p>
+              <ul class="block__list">
+                <li>iOS and Android on React Native and Expo, TypeScript throughout</li>
+                <li>Web on Next.js, sharing one backend with the app</li>
+                <li>Python and FastAPI services on Cloud Run, Firestore for data</li>
+                <li>An enforced design system: one type scale, one color system, motion and haptics with rules</li>
+                <li>Real test suites on every surface, not a smoke test at the end</li>
+              </ul>
+            </div>
+          </article>
+
+          <article class="block reveal" style="--i:2">
+            <h2 class="block__title">Consulting Services</h2>
+            <div class="block__text">
+              <p class="block__lead">The parts teams discover too late.</p>
+              <p class="block__body">
+                We advise on the decisions that are expensive to reverse: what
+                to ground on, what to externalize, how to deploy without holding
+                your breath, and how to move onto Google Cloud without a
+                rewrite.
+              </p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot-stmt foot-stmt--quiet" aria-label="Footer">
+    <div class="foot-stmt__meta">
+      <a class="foot-stmt__brand" href="index.html">
+        <img class="foot-stmt__logo" src="krisheslogo.png" alt="" width="28" height="28" />
+        Krishes Inc.
+      </a>
+      <span class="foot-stmt__muted">&copy; 2026 Krishes Inc.</span>
+      <code class="foot-stmt__ver">krishes.com</code>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

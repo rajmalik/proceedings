@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Krishes Inc. · makers of Meridian.</title>
-  <meta name="description" content="Krishes Inc. is an independent software company. We build our own apps, starting with Meridian, an AI immigration companion on the App Store, and the retrieval and reasoning behind them." />
+  <title>Krishes Inc.</title>
+  <meta name="description" content="Krishes Inc. is an independent AI-powered software company. We design, engineer, and ship AI-powered software, and the applied AI inside it." />
   <meta name="theme-color" content="#ffffff" />
 
   <link rel="icon" href="krisheslogo.png" />
@@ -20,167 +20,90 @@
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
 
-  <!-- ─── Nav · minimal monochrome bar ─── -->
   <header class="nav" id="nav">
     <div class="nav__inner">
-      <a class="nav__brand" href="#top" aria-label="Krishes Inc. home">
+      <a class="nav__brand" href="index.html" aria-current="page" aria-label="Krishes Inc. home">
         <img class="nav__logo" src="krisheslogo.png" alt="" width="24" height="24" />
-        Krishes<span class="nav__brand-inc">&nbsp;Inc.</span>
+        Krishes
       </a>
-
       <nav class="nav__right" aria-label="Primary">
-        <a class="nav__link" href="#meridian">Meridian</a>
-        <a class="btn btn--accent" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">Get Meridian</a>
+        <a class="nav__link" href="about.html">About</a>
+        <a class="nav__link" href="products.html">Products</a>
+        <a class="nav__link" href="services.html">Services</a>
       </nav>
+      <a class="nav__cta" href="#contact">Contact Us</a>
     </div>
   </header>
 
   <main id="main">
-    <span id="top"></span>
-
-    <!-- ─── Hero · positioning LEFT / proof RIGHT ─── -->
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero__copy">
         <p class="eyebrow reveal" style="--i:0">
-          <span class="eyebrow__dot" aria-hidden="true"></span> Independent software company
+          <span class="eyebrow__dot" aria-hidden="true"></span> Independent AI-powered software company
         </p>
         <h1 class="hero__title reveal" id="hero-title" style="--i:1">
-          We build apps, and the AI inside them.
+          We build AI&#8209;powered software, and the intelligence inside it.
         </h1>
         <p class="hero__lede reveal" style="--i:2">
-          Krishes Inc. builds its own products, starting with
-          <strong>Meridian</strong>, an AI immigration companion, and the
-          retrieval and reasoning that make it work. Designed, built, and
-          shipped in-house.
+          Krishes Inc. designs, engineers, and ships products end to end, and
+          builds the applied AI, retrieval and reasoning that make them useful.
         </p>
         <div class="hero__cta reveal" style="--i:3">
-          <a class="btn btn--accent btn--lg" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">
-            <svg class="btn__apple" viewBox="0 0 384 512" aria-hidden="true" focusable="false"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
-            Download on the App Store
-          </a>
-          <a class="link-arrow" href="#meridian">About Meridian <span aria-hidden="true">&#8595;</span></a>
+          <a class="btn btn--accent btn--lg" href="services.html">Services</a>
+          <a class="link-arrow" href="#contact">Work with us <span aria-hidden="true">&#8594;</span></a>
         </div>
         <p class="hero__meta reveal" style="--i:4">
-          <code>React Native</code> · <code>Next.js</code> · <code>FastAPI</code> ·
-          <code>Vertex AI</code> + <code>Gemini</code>
+          <code>design</code> · <code>engineering</code> · <code>applied AI</code>
         </p>
       </div>
 
-      <!-- Proof column: plain monochrome code in a hairline figure (no fake chrome) -->
-      <div class="demo reveal" style="--i:2" aria-label="Representative backend call">
+      <div class="demo reveal" style="--i:2" aria-label="What Krishes Inc. is about, written as code">
         <figure class="code-card">
           <figcaption class="code-card__bar">
-            <span class="code-card__file">search_client.py</span>
+            <span class="code-card__file">krishes.py</span>
           </figcaption>
-          <pre class="code"><code><span class="c-comment"># Grounded answer over a Vertex AI Search datastore</span>
-from search_client import answer_query
-
-result = answer_query(
-    "What happens after my interview is waived?",
-    project_id=PROJECT, location=REGION, engine_id=ENGINE,
-)
-
-result["answer"]      <span class="c-comment"># grounded, cited text (Gemini)</span>
-result["citations"]   <span class="c-comment"># source postings behind it</span></code></pre>
+          <pre class="code"><code><span class="c-comment"># What Krishes Inc. is about.</span>
+def make(idea):
+    idea  = listen(idea)             <span class="c-comment"># start with the person, not the feature</span>
+    thing = design(idea)             <span class="c-comment"># clarity before cleverness</span>
+    thing = engineer(thing)          <span class="c-comment"># build it to last</span>
+    thing = add_intelligence(thing)  <span class="c-comment"># AI only where it earns its place</span>
+    return ship(thing).keep_improving()</code></pre>
         </figure>
       </div>
     </section>
-
-    <!-- ─── Pillars intro · thin hairline band ─── -->
-    <section class="pillars" aria-labelledby="pillars-title">
-      <h2 class="pillars__title reveal" id="pillars-title" style="--i:0">
-        Everything Meridian needs, from one team.
-      </h2>
-      <p class="pillars__lede reveal" style="--i:1">
-        The interface people touch and the intelligence behind it,
-        built in the same codebase, held to the same standard, and tested
-        together.
-      </p>
-    </section>
-
-    <!-- ─── The app · Meridian ─── -->
-    <section class="showcase" id="meridian" aria-labelledby="meridian-title">
-      <div class="showcase__inner">
-        <div class="showcase__copy">
-          <p class="eyebrow reveal" style="--i:0">
-            <span class="eyebrow__dot" aria-hidden="true"></span> The app
-          </p>
-          <h2 class="showcase__title reveal" id="meridian-title" style="--i:1">
-            Meridian
-          </h2>
-          <p class="showcase__lede reveal" style="--i:2">
-            Meridian: USA Immigration Hub is our first app, an AI
-            immigration companion. A React Native app on iOS, a Next.js web app,
-            and a FastAPI backend grounded on Vertex AI Search with Gemini. One
-            team, the whole stack: interface, retrieval, and the
-            guardrails that keep answers honest.
-          </p>
-          <ul class="showcase__facts reveal" style="--i:3">
-            <li><span class="showcase__facts-k">Mobile</span> React Native + Expo &middot; on iOS</li>
-            <li><span class="showcase__facts-k">Web</span> Next.js 14</li>
-            <li><span class="showcase__facts-k">AI</span> Vertex AI Search + Gemini, moderation &amp; tagging</li>
-          </ul>
-          <p class="showcase__meta reveal" style="--i:4">
-            <a class="link-arrow" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">Download on the App Store <span aria-hidden="true">&#8594;</span></a>
-          </p>
-        </div>
-
-        <figure class="code-card reveal" style="--i:2">
-          <figcaption class="code-card__bar">
-            <span class="code-card__file">moderation.py</span>
-          </figcaption>
-          <pre class="code"><code><span class="c-comment"># Every user posting passes a wordlist + Gemini check</span>
-def check_text(text, *, use_llm=True):
-    hit = _wordlist_hit(text)
-    if hit:
-        raise Blocked(hit)
-    if use_llm and _gemini_flag(text):
-        raise Blocked("model-flagged")</code></pre>
-        </figure>
-      </div>
-    </section>
-
-    <!-- ─── Get the app + a low-key hello ─── -->
-    <section class="contact" id="contact" aria-labelledby="contact-title">
-      <div class="contact__inner">
-        <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot" aria-hidden="true"></span> Get the app</p>
-        <div class="contact__head reveal" style="--i:1">
-          <h2 class="contact__title" id="contact-title">
-            Meridian is on the App Store.
-          </h2>
-          <img class="contact__icon" src="meridian-icon.png"
-               alt="Meridian app icon" width="76" height="76" loading="lazy" decoding="async" />
-        </div>
-        <p class="contact__lede reveal" style="--i:2">
-          Download it on iOS. Questions or press? Say hello.
-        </p>
-        <div class="contact__actions reveal" style="--i:3">
-          <a class="btn btn--accent btn--lg" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">
-            <svg class="btn__apple" viewBox="0 0 384 512" aria-hidden="true" focusable="false"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
-            Download on the App Store
-          </a>
-          <button class="copybtn" type="button" id="copy-email" data-email="team@krishesinc.com"
-                  aria-label="Copy the Krishes Inc. email address">
-            <span class="copybtn__label">team@krishesinc.com</span>
-            <span class="copybtn__state" aria-hidden="true">Copy</span>
-          </button>
-        </div>
-      </div>
-    </section>
-
   </main>
 
-  <!-- ─── Footer · Ft5 Statement ─── -->
   <footer class="foot-stmt" aria-label="Footer">
-    <p class="foot-stmt__line">Apps, and the intelligence inside them.</p>
+    <p class="foot-stmt__line">AI&#8209;powered software, and the intelligence inside it.</p>
     <div class="foot-stmt__meta">
       <span class="foot-stmt__brand">
         <img class="foot-stmt__logo" src="krisheslogo.png" alt="" width="28" height="28" />
         Krishes Inc.
       </span>
-      <span class="foot-stmt__muted">&copy; 2026 Krishes Inc. &middot; Makers of Meridian.</span>
-      <code class="foot-stmt__ver">krishesinc.com</code>
+      <span class="foot-stmt__muted">&copy; 2026 Krishes Inc.</span>
+      <code class="foot-stmt__ver">krishes.com</code>
     </div>
+
+    <section class="contact" id="contact" aria-labelledby="contact-title">
+      <div class="contact__inner">
+        <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot" aria-hidden="true"></span> Work with us</p>
+        <h2 class="contact__title reveal" id="contact-title" style="--i:1">
+          Have something you want built?
+        </h2>
+        <p class="contact__lede reveal" style="--i:2">
+          Tell us what you're working on. We take on a small number of projects
+          at a time.
+        </p>
+        <div class="contact__actions reveal" style="--i:3">
+          <button class="copybtn" type="button" id="copy-email" data-email="team@krishes.com"
+                  aria-label="Copy the Krishes Inc. email address">
+            <span class="copybtn__label">team@krishes.com</span>
+            <span class="copybtn__state" aria-hidden="true">Copy</span>
+          </button>
+        </div>
+      </div>
+    </section>
   </footer>
 
   <script src="script.js"></script>

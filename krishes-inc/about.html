@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>About · Krishes Inc.</title>
+  <meta name="description" content="Krishes is an independent AI-powered software company. We ship our own AI products and bring the same team, stack and standard to client work." />
+  <meta name="theme-color" content="#ffffff" />
+
+  <link rel="icon" href="krisheslogo.png" />
+  <link rel="apple-touch-icon" href="krisheslogo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="nav" id="nav">
+    <div class="nav__inner">
+      <a class="nav__brand" href="index.html" aria-label="Krishes Inc. home">
+        <img class="nav__logo" src="krisheslogo.png" alt="" width="24" height="24" />
+        Krishes
+      </a>
+      <nav class="nav__right" aria-label="Primary">
+        <a class="nav__link" href="about.html" aria-current="page">About</a>
+        <a class="nav__link" href="products.html">Products</a>
+        <a class="nav__link" href="services.html">Services</a>
+      </nav>
+      <a class="nav__cta" href="index.html#contact">Contact Us</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <article class="letter" aria-labelledby="about-title">
+      <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot" aria-hidden="true"></span> About</p>
+      <h1 class="letter__title reveal" id="about-title" style="--i:1">
+        We build AI products, and we build them for you.
+      </h1>
+      <p class="letter__lede reveal" style="--i:2">
+        Krishes is an independent AI-powered software company. We ship our own AI
+        products, starting with Meridian, a community-driven immigration
+        companion on the App Store. We bring the same team, stack and
+        standard to client work. Everything we sell, we run in production
+        ourselves.
+      </p>
+
+      <section class="letter__block reveal" style="--i:0" aria-labelledby="about-community">
+        <h2 class="letter__h" id="about-community">Community-driven AI products.</h2>
+        <p>
+          The best AI products don't just answer questions. They connect
+          the people asking them.
+        </p>
+        <p>
+          We design products where a model grounds itself in what a real
+          community has lived through, and where users find each other,
+          not just an answer. Meridian is the proof: grounded, cited
+          answers over real applicant experiences, plus cohorts of people
+          going through the same process at the same time. We build that
+          pattern for other domains where people are navigating something
+          hard, together.
+        </p>
+      </section>
+
+      <section class="letter__block reveal" style="--i:1" aria-labelledby="about-gemini">
+        <h2 class="letter__h" id="about-gemini">Gemini-powered AI offerings.</h2>
+        <p>
+          Retrieval that actually retrieves, and generation you can
+          defend.
+        </p>
+        <p>
+          We build grounded RAG on Vertex AI Search, structured extraction
+          and auto-tagging with controlled vocabularies, AI onboarding
+          flows, and content moderation pipelines. Guardrails, evaluation
+          and citations are built in from the start, not bolted on. We've
+          shipped all of it under the constraints of a regulated domain,
+          where a wrong answer isn't an inconvenience.
+        </p>
+      </section>
+
+      <section class="letter__block reveal" style="--i:2" aria-labelledby="about-gcp">
+        <h2 class="letter__h" id="about-gcp">GCP migration.</h2>
+        <p>
+          We run production workloads on Cloud Run, Firestore, Vertex AI,
+          Cloud Build and IAM every day.
+        </p>
+        <p>
+          We'll migrate you onto that stack with the parts teams usually
+          discover too late: manual-approval deploys, no-traffic candidate
+          revisions and smoke tests before promotion, externalized
+          configuration that changes without a redeploy, and immutable,
+          component-scoped release tags so you can always roll back to
+          exactly what was running.
+        </p>
+      </section>
+
+      <p class="letter__close reveal" style="--i:0">
+        We don't consult on this stack. We ship on it.
+      </p>
+    </article>
+  </main>
+
+  <footer class="foot-stmt foot-stmt--quiet" aria-label="Footer">
+    <div class="foot-stmt__meta">
+      <a class="foot-stmt__brand" href="index.html">
+        <img class="foot-stmt__logo" src="krisheslogo.png" alt="" width="28" height="28" />
+        Krishes Inc.
+      </a>
+      <span class="foot-stmt__muted">&copy; 2026 Krishes Inc.</span>
+      <code class="foot-stmt__ver">krishes.com</code>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
