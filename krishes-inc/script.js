@@ -49,7 +49,7 @@
     document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('is-inview'); });
     return;
   }
-  var revealHosts = document.querySelectorAll('main > section, #work > section, .foot-stmt');
+  var revealHosts = document.querySelectorAll('main > section, .foot-stmt');
   var io = new IntersectionObserver(function (entries, obs) {
     entries.forEach(function (entry) {
       if (!entry.isIntersecting) return;

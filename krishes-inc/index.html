@@ -30,7 +30,6 @@
 
       <nav class="nav__right" aria-label="Primary">
         <a class="nav__link" href="#meridian">Meridian</a>
-        <a class="nav__link" href="#capabilities">How it&rsquo;s built</a>
         <a class="btn btn--accent" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">Get Meridian</a>
       </nav>
     </div>
@@ -99,84 +98,6 @@ result["citations"]   <span class="c-comment"># source postings behind it</span>
       </p>
     </section>
 
-    <!-- ─── How it's built: alternating diptychs ─── -->
-    <div id="work">
-
-    <!-- Split A · App craft · text LEFT / proof RIGHT -->
-    <section class="split" aria-labelledby="app-title">
-      <div class="split__text reveal" style="--i:0">
-        <p class="eyebrow"><span class="eyebrow__dot" aria-hidden="true"></span> App craft</p>
-        <h2 class="split__title" id="app-title">An app people actually keep on the home screen.</h2>
-        <p class="split__body">
-          Meridian runs on a modern React Native&nbsp;+&nbsp;Expo stack with a
-          real design system: typed components, one type scale,
-          motion and haptics with rules, not ad-hoc screens. A
-          Next.js web app shares the same backend. Both carry their own test
-          suites.
-        </p>
-        <ul class="split__list">
-          <li>React Native + Expo, TypeScript</li>
-          <li>Next.js web app, server routes, SSR</li>
-          <li>A shared, enforced design system (typography, color, motion)</li>
-          <li>Jest and Vitest test coverage on both</li>
-        </ul>
-        <a class="link-arrow" href="#capabilities">Full stack <span aria-hidden="true">&#8594;</span></a>
-      </div>
-      <div class="split__proof reveal" style="--i:1">
-        <figure class="code-card">
-          <figcaption class="code-card__bar">
-            <span class="code-card__file">mobile/package.json</span>
-          </figcaption>
-          <pre class="code"><code>{
-  "expo": "^56.0.12",
-  "react": "^19.2.3",
-  "react-native": "^0.85.3",
-  "@react-navigation/native": "^6.1.17",
-  "firebase": "^12.14.0",
-  "@google/generative-ai": "^0.24.1"
-}</code></pre>
-        </figure>
-      </div>
-    </section>
-
-    <!-- Split B · AI craft · text RIGHT / proof LEFT (alternates) -->
-    <section class="split split--reverse" aria-labelledby="ai-title">
-      <div class="split__text reveal" style="--i:0">
-        <p class="eyebrow"><span class="eyebrow__dot" aria-hidden="true"></span> AI craft</p>
-        <h2 class="split__title" id="ai-title">Retrieval and reasoning that stays grounded.</h2>
-        <p class="split__body">
-          We build the AI, not just call it. A Python&nbsp;/&nbsp;FastAPI backend
-          grounds answers on a Google Vertex AI Search datastore and generates
-          them with Gemini: guardrails, source citations, a
-          matching engine, automated tagging, and content moderation.
-        </p>
-        <ul class="split__list">
-          <li>Grounded retrieval on Vertex AI Search (Discovery Engine)</li>
-          <li>Gemini for answers, tagging, and moderation</li>
-          <li>A scored matching engine over structured profiles</li>
-          <li>Firestore, BigQuery, and Cloud Storage for data</li>
-        </ul>
-        <a class="link-arrow" href="#meridian">How it ships <span aria-hidden="true">&#8594;</span></a>
-      </div>
-      <div class="split__proof reveal" style="--i:1">
-        <figure class="code-card">
-          <figcaption class="code-card__bar">
-            <span class="code-card__file">matching.py</span>
-          </figcaption>
-          <pre class="code"><code><span class="c-comment"># Score candidates against a user's structured criteria</span>
-def find_matches(db, user_id, criteria, top_n=20):
-    pool = list_candidate_profiles(db, exclude_id=user_id)
-    scored = [
-        (_score(criteria, prof), prof)
-        for prof in pool
-    ]
-    return _rank(scored)[:top_n]</code></pre>
-        </figure>
-      </div>
-    </section>
-
-    </div><!-- /#work -->
-
     <!-- ─── The app · Meridian ─── -->
     <section class="showcase" id="meridian" aria-labelledby="meridian-title">
       <div class="showcase__inner">
@@ -217,48 +138,6 @@ def check_text(text, *, use_llm=True):
         raise Blocked("model-flagged")</code></pre>
         </figure>
       </div>
-    </section>
-
-    <!-- ─── Capabilities index · hairline grid · all real ─── -->
-    <section class="caps" id="capabilities" aria-labelledby="caps-title">
-      <header class="caps__head">
-        <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot" aria-hidden="true"></span> How it&rsquo;s built</p>
-        <h2 class="caps__title reveal" id="caps-title" style="--i:1">The stack behind Meridian.</h2>
-      </header>
-      <ul class="caps__grid">
-        <li class="caps__cell reveal" style="--i:0">
-          <span class="caps__k">Mobile</span>
-          <span class="caps__v">React Native + Expo &middot; TypeScript</span>
-        </li>
-        <li class="caps__cell reveal" style="--i:1">
-          <span class="caps__k">Web</span>
-          <span class="caps__v">Next.js 14, React, server routes</span>
-        </li>
-        <li class="caps__cell reveal" style="--i:2">
-          <span class="caps__k">Backend</span>
-          <span class="caps__v">Python &middot; FastAPI &middot; Cloud Run</span>
-        </li>
-        <li class="caps__cell reveal" style="--i:3">
-          <span class="caps__k">AI retrieval</span>
-          <span class="caps__v">Google Vertex AI Search (Discovery Engine)</span>
-        </li>
-        <li class="caps__cell reveal" style="--i:4">
-          <span class="caps__k">Generative AI</span>
-          <span class="caps__v">Gemini &middot; grounded answers, tagging, moderation</span>
-        </li>
-        <li class="caps__cell reveal" style="--i:5">
-          <span class="caps__k">Data</span>
-          <span class="caps__v">Firestore &middot; BigQuery &middot; Cloud Storage</span>
-        </li>
-        <li class="caps__cell reveal" style="--i:6">
-          <span class="caps__k">Auth</span>
-          <span class="caps__v">Firebase &middot; Apple &amp; Google sign-in</span>
-        </li>
-        <li class="caps__cell reveal" style="--i:7">
-          <span class="caps__k">Quality</span>
-          <span class="caps__v">Jest &amp; Vitest suites &middot; CI on every push</span>
-        </li>
-      </ul>
     </section>
 
     <!-- ─── Get the app + a low-key hello ─── -->
