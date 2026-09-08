@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Krishes Inc. · makers of Meridian.</title>
+  <meta name="description" content="Krishes Inc. is an independent software company. We build our own apps, starting with Meridian, an AI immigration companion on the App Store, and the retrieval and reasoning behind them." />
+  <meta name="theme-color" content="#ffffff" />
+
+  <link rel="icon" href="krisheslogo.png" />
+  <link rel="apple-touch-icon" href="krisheslogo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- ─── Nav · minimal monochrome bar ─── -->
+  <header class="nav" id="nav">
+    <div class="nav__inner">
+      <a class="nav__brand" href="#top" aria-label="Krishes Inc. home">
+        <img class="nav__logo" src="krisheslogo.png" alt="" width="24" height="24" />
+        Krishes<span class="nav__brand-inc">&nbsp;Inc.</span>
+      </a>
+
+      <nav class="nav__right" aria-label="Primary">
+        <a class="nav__link" href="#meridian">Meridian</a>
+        <a class="nav__link" href="#capabilities">How it&rsquo;s built</a>
+        <a class="btn btn--accent" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">Get Meridian</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <span id="top"></span>
+
+    <!-- ─── Hero · positioning LEFT / proof RIGHT ─── -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero__copy">
+        <p class="eyebrow reveal" style="--i:0">
+          <span class="eyebrow__dot" aria-hidden="true"></span> Independent software company
+        </p>
+        <h1 class="hero__title reveal" id="hero-title" style="--i:1">
+          We build apps, and the AI inside them.
+        </h1>
+        <p class="hero__lede reveal" style="--i:2">
+          Krishes Inc. builds its own products, starting with
+          <strong>Meridian</strong>, an AI immigration companion, and the
+          retrieval and reasoning that make it work. Designed, built, and
+          shipped in-house.
+        </p>
+        <div class="hero__cta reveal" style="--i:3">
+          <a class="btn btn--accent btn--lg" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">
+            <svg class="btn__apple" viewBox="0 0 384 512" aria-hidden="true" focusable="false"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+            Download on the App Store
+          </a>
+          <a class="link-arrow" href="#meridian">About Meridian <span aria-hidden="true">&#8595;</span></a>
+        </div>
+        <p class="hero__meta reveal" style="--i:4">
+          <code>React Native</code> · <code>Next.js</code> · <code>FastAPI</code> ·
+          <code>Vertex AI</code> + <code>Gemini</code>
+        </p>
+      </div>
+
+      <!-- Proof column: plain monochrome code in a hairline figure (no fake chrome) -->
+      <div class="demo reveal" style="--i:2" aria-label="Representative backend call">
+        <figure class="code-card">
+          <figcaption class="code-card__bar">
+            <span class="code-card__file">search_client.py</span>
+          </figcaption>
+          <pre class="code"><code><span class="c-comment"># Grounded answer over a Vertex AI Search datastore</span>
+from search_client import answer_query
+
+result = answer_query(
+    "What happens after my interview is waived?",
+    project_id=PROJECT, location=REGION, engine_id=ENGINE,
+)
+
+result["answer"]      <span class="c-comment"># grounded, cited text (Gemini)</span>
+result["citations"]   <span class="c-comment"># source postings behind it</span></code></pre>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ─── Pillars intro · thin hairline band ─── -->
+    <section class="pillars" aria-labelledby="pillars-title">
+      <h2 class="pillars__title reveal" id="pillars-title" style="--i:0">
+        Everything Meridian needs, from one team.
+      </h2>
+      <p class="pillars__lede reveal" style="--i:1">
+        The interface people touch and the intelligence behind it,
+        built in the same codebase, held to the same standard, and tested
+        together.
+      </p>
+    </section>
+
+    <!-- ─── How it's built: alternating diptychs ─── -->
+    <div id="work">
+
+    <!-- Split A · App craft · text LEFT / proof RIGHT -->
+    <section class="split" aria-labelledby="app-title">
+      <div class="split__text reveal" style="--i:0">
+        <p class="eyebrow"><span class="eyebrow__dot" aria-hidden="true"></span> App craft</p>
+        <h2 class="split__title" id="app-title">An app people actually keep on the home screen.</h2>
+        <p class="split__body">
+          Meridian runs on a modern React Native&nbsp;+&nbsp;Expo stack with a
+          real design system: typed components, one type scale,
+          motion and haptics with rules, not ad-hoc screens. A
+          Next.js web app shares the same backend. Both carry their own test
+          suites.
+        </p>
+        <ul class="split__list">
+          <li>React Native + Expo, TypeScript</li>
+          <li>Next.js web app, server routes, SSR</li>
+          <li>A shared, enforced design system (typography, color, motion)</li>
+          <li>Jest and Vitest test coverage on both</li>
+        </ul>
+        <a class="link-arrow" href="#capabilities">Full stack <span aria-hidden="true">&#8594;</span></a>
+      </div>
+      <div class="split__proof reveal" style="--i:1">
+        <figure class="code-card">
+          <figcaption class="code-card__bar">
+            <span class="code-card__file">mobile/package.json</span>
+          </figcaption>
+          <pre class="code"><code>{
+  "expo": "^56.0.12",
+  "react": "^19.2.3",
+  "react-native": "^0.85.3",
+  "@react-navigation/native": "^6.1.17",
+  "firebase": "^12.14.0",
+  "@google/generative-ai": "^0.24.1"
+}</code></pre>
+        </figure>
+      </div>
+    </section>
+
+    <!-- Split B · AI craft · text RIGHT / proof LEFT (alternates) -->
+    <section class="split split--reverse" aria-labelledby="ai-title">
+      <div class="split__text reveal" style="--i:0">
+        <p class="eyebrow"><span class="eyebrow__dot" aria-hidden="true"></span> AI craft</p>
+        <h2 class="split__title" id="ai-title">Retrieval and reasoning that stays grounded.</h2>
+        <p class="split__body">
+          We build the AI, not just call it. A Python&nbsp;/&nbsp;FastAPI backend
+          grounds answers on a Google Vertex AI Search datastore and generates
+          them with Gemini: guardrails, source citations, a
+          matching engine, automated tagging, and content moderation.
+        </p>
+        <ul class="split__list">
+          <li>Grounded retrieval on Vertex AI Search (Discovery Engine)</li>
+          <li>Gemini for answers, tagging, and moderation</li>
+          <li>A scored matching engine over structured profiles</li>
+          <li>Firestore, BigQuery, and Cloud Storage for data</li>
+        </ul>
+        <a class="link-arrow" href="#meridian">How it ships <span aria-hidden="true">&#8594;</span></a>
+      </div>
+      <div class="split__proof reveal" style="--i:1">
+        <figure class="code-card">
+          <figcaption class="code-card__bar">
+            <span class="code-card__file">matching.py</span>
+          </figcaption>
+          <pre class="code"><code><span class="c-comment"># Score candidates against a user's structured criteria</span>
+def find_matches(db, user_id, criteria, top_n=20):
+    pool = list_candidate_profiles(db, exclude_id=user_id)
+    scored = [
+        (_score(criteria, prof), prof)
+        for prof in pool
+    ]
+    return _rank(scored)[:top_n]</code></pre>
+        </figure>
+      </div>
+    </section>
+
+    </div><!-- /#work -->
+
+    <!-- ─── The app · Meridian ─── -->
+    <section class="showcase" id="meridian" aria-labelledby="meridian-title">
+      <div class="showcase__inner">
+        <div class="showcase__copy">
+          <p class="eyebrow reveal" style="--i:0">
+            <span class="eyebrow__dot" aria-hidden="true"></span> The app
+          </p>
+          <h2 class="showcase__title reveal" id="meridian-title" style="--i:1">
+            Meridian
+          </h2>
+          <p class="showcase__lede reveal" style="--i:2">
+            Meridian: USA Immigration Hub is our first app, an AI
+            immigration companion. A React Native app on iOS, a Next.js web app,
+            and a FastAPI backend grounded on Vertex AI Search with Gemini. One
+            team, the whole stack: interface, retrieval, and the
+            guardrails that keep answers honest.
+          </p>
+          <ul class="showcase__facts reveal" style="--i:3">
+            <li><span class="showcase__facts-k">Mobile</span> React Native + Expo &middot; on iOS</li>
+            <li><span class="showcase__facts-k">Web</span> Next.js 14</li>
+            <li><span class="showcase__facts-k">AI</span> Vertex AI Search + Gemini, moderation &amp; tagging</li>
+          </ul>
+          <p class="showcase__meta reveal" style="--i:4">
+            <a class="link-arrow" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">Download on the App Store <span aria-hidden="true">&#8594;</span></a>
+          </p>
+        </div>
+
+        <figure class="code-card reveal" style="--i:2">
+          <figcaption class="code-card__bar">
+            <span class="code-card__file">moderation.py</span>
+          </figcaption>
+          <pre class="code"><code><span class="c-comment"># Every user posting passes a wordlist + Gemini check</span>
+def check_text(text, *, use_llm=True):
+    hit = _wordlist_hit(text)
+    if hit:
+        raise Blocked(hit)
+    if use_llm and _gemini_flag(text):
+        raise Blocked("model-flagged")</code></pre>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ─── Capabilities index · hairline grid · all real ─── -->
+    <section class="caps" id="capabilities" aria-labelledby="caps-title">
+      <header class="caps__head">
+        <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot" aria-hidden="true"></span> How it&rsquo;s built</p>
+        <h2 class="caps__title reveal" id="caps-title" style="--i:1">The stack behind Meridian.</h2>
+      </header>
+      <ul class="caps__grid">
+        <li class="caps__cell reveal" style="--i:0">
+          <span class="caps__k">Mobile</span>
+          <span class="caps__v">React Native + Expo &middot; TypeScript</span>
+        </li>
+        <li class="caps__cell reveal" style="--i:1">
+          <span class="caps__k">Web</span>
+          <span class="caps__v">Next.js 14, React, server routes</span>
+        </li>
+        <li class="caps__cell reveal" style="--i:2">
+          <span class="caps__k">Backend</span>
+          <span class="caps__v">Python &middot; FastAPI &middot; Cloud Run</span>
+        </li>
+        <li class="caps__cell reveal" style="--i:3">
+          <span class="caps__k">AI retrieval</span>
+          <span class="caps__v">Google Vertex AI Search (Discovery Engine)</span>
+        </li>
+        <li class="caps__cell reveal" style="--i:4">
+          <span class="caps__k">Generative AI</span>
+          <span class="caps__v">Gemini &middot; grounded answers, tagging, moderation</span>
+        </li>
+        <li class="caps__cell reveal" style="--i:5">
+          <span class="caps__k">Data</span>
+          <span class="caps__v">Firestore &middot; BigQuery &middot; Cloud Storage</span>
+        </li>
+        <li class="caps__cell reveal" style="--i:6">
+          <span class="caps__k">Auth</span>
+          <span class="caps__v">Firebase &middot; Apple &amp; Google sign-in</span>
+        </li>
+        <li class="caps__cell reveal" style="--i:7">
+          <span class="caps__k">Quality</span>
+          <span class="caps__v">Jest &amp; Vitest suites &middot; CI on every push</span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ─── Get the app + a low-key hello ─── -->
+    <section class="contact" id="contact" aria-labelledby="contact-title">
+      <div class="contact__inner">
+        <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot" aria-hidden="true"></span> Get the app</p>
+        <div class="contact__head reveal" style="--i:1">
+          <h2 class="contact__title" id="contact-title">
+            Meridian is on the App Store.
+          </h2>
+          <img class="contact__icon" src="meridian-icon.png"
+               alt="Meridian app icon" width="76" height="76" loading="lazy" decoding="async" />
+        </div>
+        <p class="contact__lede reveal" style="--i:2">
+          Download it on iOS. Questions or press? Say hello.
+        </p>
+        <div class="contact__actions reveal" style="--i:3">
+          <a class="btn btn--accent btn--lg" href="https://apps.apple.com/us/app/meridian-usa-immigration-hub/id6781595396" target="_blank" rel="noopener">
+            <svg class="btn__apple" viewBox="0 0 384 512" aria-hidden="true" focusable="false"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+            Download on the App Store
+          </a>
+          <button class="copybtn" type="button" id="copy-email" data-email="support@krishesinc.com"
+                  aria-label="Copy the Krishes Inc. email address">
+            <span class="copybtn__label">support@krishesinc.com</span>
+            <span class="copybtn__state" aria-hidden="true">Copy</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ─── Footer · Ft5 Statement ─── -->
+  <footer class="foot-stmt" aria-label="Footer">
+    <p class="foot-stmt__line">Apps, and the intelligence inside them.</p>
+    <div class="foot-stmt__meta">
+      <span class="foot-stmt__brand">
+        <img class="foot-stmt__logo" src="krisheslogo.png" alt="" width="28" height="28" />
+        Krishes Inc.
+      </span>
+      <span class="foot-stmt__muted">&copy; 2026 Krishes Inc. &middot; Makers of Meridian.</span>
+      <code class="foot-stmt__ver">krishesinc.com</code>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

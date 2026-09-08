@@ -1,0 +1,9 @@
+{
+  "date": "2026-09-05",
+  "framework": "vanilla HTML + CSS (no framework)",
+  "font_stack": "none (introduced Space Grotesk + Inter + JetBrains Mono via Google Fonts)",
+  "palette": "none (introduced Cobalt OKLCH token system)",
+  "motion": "motion-cut (no motion library; introduced a small IntersectionObserver reveal + ⌘K palette)",
+  "spacing": "none (introduced 4pt scale)",
+  "notes": "New standalone folder krishes-inc/. No pre-flight signals to preserve; full Hallmark stack introduced."
+}
