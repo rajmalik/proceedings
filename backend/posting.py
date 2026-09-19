@@ -1470,15 +1470,17 @@ def _markdown_body(title: str, description: str) -> str:
 # Persist: GCS sidecar → documents.import → BigQuery
 # ---------------------------------------------------------------------------
 
-def _write_gcs(canonical: dict, md_body: str) -> tuple[str, str]:
-    """Write .md (first) then .json (last) to the date/channel prefix. Returns (md_uri, json_uri)."""
+def _write_gcs(canonical: dict, md_body: str, base_override: str | None = None) -> tuple[str, str]:
+    """Write .md (first) then .json (last) to the date/channel prefix — or to an
+    explicit `base_override` (used by official_reference for a stable, date-free
+    one-object-per-URL path). Returns (md_uri, json_uri)."""
     bucket_name = _bucket_name()
     case_id = canonical["case_id"]
     date_str = canonical["posting_date"]
     # Bug fixed: this used to reference the module-level CHANNEL constant
     # ("app") unconditionally, so backend-ingested (channel="reddit") content
     # would land under an "app/" GCS prefix regardless of its real channel.
-    base = f"{date_str}/{canonical['channel']}/{case_id}"
+    base = base_override or f"{date_str}/{canonical['channel']}/{case_id}"
     client = storage.Client(project=_project())
     bucket = client.bucket(bucket_name)
     bucket.blob(f"{base}.md").upload_from_string(md_body, content_type="text/markdown")
@@ -1920,6 +1922,146 @@ def publish_gov_news_item(title: str, description: str, source_system: str,
         "indexed": True,
         "author_handle": canonical["author_handle"],
     }
+
+
+def _bq_content_hash(source_system: str, source_item_id: str) -> str | None:
+    """Latest stored content_hash for one (source_system, source_item_id) pair —
+    the dedup guardrail so an UNCHANGED official-reference page is not re-ingested
+    on a repeat run. Mirrors gov_news_poll._existing_hashes()' content-hash check,
+    scoped to a single item. Returns None if never ingested, or on any BigQuery
+    error (fail-open: a lookup failure must not block a legitimate publish)."""
+    try:
+        from google.cloud import bigquery
+        client = bigquery.Client(project=_project())
+        sql = (
+            f"SELECT content_hash FROM `{_project()}.postings.postings_metadata` "
+            "WHERE source_system=@ss AND source_item_id=@sid "
+            "ORDER BY ingestion_timestamp DESC LIMIT 1"
+        )
+        cfg = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("ss", "STRING", source_system),
+            bigquery.ScalarQueryParameter("sid", "STRING", source_item_id),
+        ])
+        for row in client.query(sql, job_config=cfg).result():
+            return row["content_hash"]
+    except Exception as e:  # noqa: BLE001 - fail-open on lookup error
+        print(f"posting: official-reference dedup lookup failed ({e}); proceeding with publish")
+    return None
+
+
+def publish_official_reference_item(
+    title: str, body_text: str, source_system: str, full_url: str,
+    as_of_date: str = "", author_handle: str = "", dry_run: bool = False,
+    skip_if_unchanged: bool = True,
+) -> dict:
+    """Publish an authoritative, static official-reference page (e.g. ICE SEVIS,
+    a USCIS policy page, a Visa Bulletin narrative) into DS-1 for grounding —
+    the Phase-2 "authoritative official data" path in
+    docs/ingestion/GROUNDING-INGESTION-PLAN.md. NOT wired to any HTTP route.
+
+    Like publish_gov_news_item() (fully-automated _extract() tagging; skips
+    scrub_pii()/moderation.check_text() — official government content, not a
+    live user submission), but:
+      - doc_kind = "official_reference" — evergreen reference, NOT "gov_news",
+        so it is deliberately NOT carved out of free-text search by the News
+        tab's 7-day recency rule (GROUNDING-INGESTION-PLAN.md); it should always
+        be groundable.
+      - channel = "official", ingestion_method = "official_fetch".
+      - never tagged "news-update" (it isn't news) — the strip half of
+        _gov_news_tags() guarantees this even if _extract() self-selects it.
+
+    One stable doc per URL: case_id = official-{source_system}-{sha8(full_url)}
+    (keyed on the URL only — NOT the date). Re-ingesting a CHANGED page upserts
+    the SAME datastore doc / GCS object / BigQuery row in place; there is never
+    more than one doc per page and no dated versions to orphan. `as_of_date` is
+    OPTIONAL metadata (the page's effective / "last updated" date, stored as
+    posting_date for "as of {date}" citations; defaults to today).
+
+    `skip_if_unchanged=True` (the default) is the dedup guardrail: before doing
+    any work, it compares this page's content_hash to the last-stored hash for
+    (source_system, full_url) and SKIPS the whole publish — no _extract(), no
+    GCS/datastore/BigQuery write — when identical. So a repeat run over an
+    unchanged page is a no-op; a changed page re-publishes (and INCREMENTAL
+    import upserts the same case_id). Skipped for `dry_run`.
+
+    `dry_run=True` builds + validates the canonical and returns it (under the
+    "canonical" key) WITHOUT any GCS/datastore/BigQuery write — for tests and a
+    safe driver default."""
+    # Effective date is metadata only (the case_id is URL-stable, below), so it's
+    # optional and defaults to today.
+    as_of_date = as_of_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Dedup guardrail: same content fingerprint the gov-news poll uses. Skip a
+    # real publish entirely when this source's last-stored content_hash matches
+    # — no re-run of _extract() (Gemini) or re-write of GCS/datastore/BigQuery.
+    content_hash = content_hash_for(title, body_text)
+    if skip_if_unchanged and not dry_run:
+        prior = _bq_content_hash(source_system, full_url)
+        if prior is not None and prior == content_hash:
+            print(f"posting: official-reference {full_url} unchanged (content_hash match) — skipping")
+            return {
+                "skipped": True,
+                "reason": "unchanged",
+                "indexed": False,
+                "content_hash": content_hash,
+                "full_url": full_url,
+            }
+
+    try:
+        extracted = _extract(title, body_text)
+    except Exception as e:  # noqa: BLE001 - publish with minimal tags rather than fail
+        print(f"posting: extraction for official-reference item failed ({e}); publishing with minimal tags")
+        extracted = {}
+
+    tags = dict(extracted)
+    # Official reference is NOT news — strip any model-chosen `news-update`
+    # (reuses the deterministic strip half of _gov_news_tags for a non-"news"
+    # content_type).
+    tags["tags"] = _gov_news_tags(extracted.get("tags") or [], "official_reference")
+
+    canonical = build_canonical(
+        title, body_text, tags,
+        extracted.get("key_stages_or_info"), extracted.get("key_dates"), extracted,
+        channel="official", ingestion_method="official_fetch",
+        source_system=source_system, full_url=full_url,
+        posting_date=as_of_date, author_handle=author_handle,
+        source_item_id=full_url,
+    )
+    # Post-hoc override, same pattern as publish_gov_news_item(): doc_kind (not
+    # channel) is the indexable/filterable field.
+    canonical["doc_kind"] = "official_reference"
+    # One stable doc per URL: re-key the case_id (and the GCS object + source_uri)
+    # on the URL only — NOT the effective date — so a changed page upserts the
+    # SAME doc in place instead of minting a new dated version. build_canonical's
+    # default scheme embeds posting_date in the id, which we deliberately drop
+    # here. `as_of_date`/posting_date stays as metadata.
+    short = hashlib.sha256(full_url.encode()).hexdigest()[:8]
+    stable_id = f"official-{source_system}-{short}"
+    gcs_base = f"official/{source_system}/{stable_id}"
+    canonical["case_id"] = stable_id
+    canonical["source_uri"] = f"{APP_BASE_URL}/case/{stable_id}"
+    canonical["gcs_path"] = f"gs://{_bucket_name()}/official/{source_system}/"
+    errs = validate(canonical)
+    if errs:
+        raise ValueError("; ".join(errs))
+
+    result = {
+        "case_id": stable_id,
+        "gcs_path": canonical["gcs_path"],
+        "author_handle": canonical["author_handle"],
+    }
+    if dry_run:
+        result["indexed"] = False
+        result["dry_run"] = True
+        result["canonical"] = canonical
+        return result
+
+    md_uri, _json_uri = _write_gcs(canonical, _markdown_body(title, body_text), base_override=gcs_base)
+    _import_to_datastore(canonical, md_uri)
+    # delete-before-insert keeps the analytics table at one row per stable case_id.
+    _write_bigquery(canonical, pipeline_run_id="official-reference", delete_existing=True)
+    result["indexed"] = True
+    return result
 
 
 def publish_immihelp_posting(title: str, description: str, source_item_id: str,
