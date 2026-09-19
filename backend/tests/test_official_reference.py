@@ -1,28 +1,34 @@
 #!/usr/bin/env python3
-"""Deterministic unit tests for the official_reference publish path
-(posting.publish_official_reference_item) — the Phase-2 minimal slice in
-docs/ingestion/GROUNDING-INGESTION-PLAN.md.
+"""Tests for the official_reference publish path (Phase-2 minimal slice —
+docs/ingestion/GROUNDING-INGESTION-PLAN.md):
 
-Offline / no-GCP: stubs _extract() (no Gemini) and validate() (the tag vocab is
-already covered by test_posting_tagging.py), and uses dry_run=True so nothing
-touches GCS/datastore/BigQuery. Wired into the no-GCP CI gate.
+  unit         (offline, no-GCP) — publish_official_reference_item field logic +
+               the seed driver's HTML body extraction. Stubs _extract()/validate()
+               and uses dry_run=True so nothing touches GCS/datastore/BigQuery.
+  integration  (LIVE GCP, ADC) — a real round-trip: publish a clearly-synthetic
+               official_reference doc into DS-1, verify placement + struct fields
+               via the DocumentServiceClient, then delete it in cleanup.
 
-Run: python tests/test_official_reference.py [unit|all]
+Run:  python tests/test_official_reference.py [unit|integration|all]
+`unit` is the default and is wired into the no-GCP CI gate.
 """
 import hashlib
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # backend/ on path
+_BACKEND = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_BACKEND))               # backend/ on path
+sys.path.insert(0, str(_BACKEND / "scripts"))   # scripts/ on path (seed driver)
 import posting  # noqa: E402
 
 _passed = 0
 _failed = 0
 
 
-def check(name: str, ok: bool) -> None:
+def check(name: str, ok: bool, detail: str = "") -> None:
     global _passed, _failed
-    print(f"  {'PASS' if ok else 'FAIL'}  {name}")
+    print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f" — {detail}" if detail else ""))
     if ok:
         _passed += 1
     else:
@@ -52,10 +58,15 @@ def _publish(**over):
     return posting.publish_official_reference_item(**kw)
 
 
-def run_unit() -> None:
+# ---------------------------------------------------------------------------
+# Unit — publish_official_reference_item field logic (offline)
+# ---------------------------------------------------------------------------
+
+def run_unit_publish() -> None:
+    print("\nUnit A/B/C/D — publish_official_reference_item")
     orig_extract, orig_validate = posting._extract, posting.validate
     posting._extract = _STUB_EXTRACT
-    posting.validate = lambda c: []  # vocab validation covered elsewhere
+    posting.validate = lambda c: []  # vocab validation covered by test_posting_tagging
     try:
         res = _publish()
         c = res["canonical"]
@@ -69,35 +80,129 @@ def run_unit() -> None:
         check("A7 full_url preserved", c["full_url"] == URL)
         check("A8 posting_date == as_of_date", c["posting_date"] == "2026-09-19")
 
-        # `news-update` is stripped — official reference is not news
-        check("B1 news-update stripped from tags", "news-update" not in c["tags"])
+        check("B1 news-update stripped (not news)", "news-update" not in c["tags"])
         check("B2 legitimate tags kept", "sevis" in c["tags"] and "student-visa" in c["tags"])
 
-        # Deterministic, idempotent case_id keyed on the URL + as_of date
         short = hashlib.sha256(URL.encode()).hexdigest()[:8]
         check("C1 case_id scheme", c["case_id"] == f"official-ice-2026-09-19-{short}")
         check("C2 gcs prefix under /official/", "/official/" in c["gcs_path"])
-        res2 = _publish()
-        check("C3 idempotent case_id on re-ingest", res2["case_id"] == res["case_id"])
-        res3 = _publish(as_of_date="2026-10-01")
-        check("C4 new as_of_date supersedes (different case_id)", res3["case_id"] != res["case_id"])
+        check("C3 idempotent case_id on re-ingest", _publish()["case_id"] == res["case_id"])
+        check("C4 new as_of_date supersedes", _publish(as_of_date="2026-10-01")["case_id"] != res["case_id"])
+        check("C5 different URL → different case_id",
+              _publish(full_url="https://www.ice.gov/other")["case_id"] != res["case_id"])
 
-        # Guardrail: empty as_of_date is rejected (prevents daily-drifting case_id)
         try:
             _publish(as_of_date="")
             check("D1 empty as_of_date rejected", False)
         except ValueError:
             check("D1 empty as_of_date rejected", True)
+
+        # D2: extraction failure → publish with minimal tags, does not crash
+        posting._extract = lambda t, d: (_ for _ in ()).throw(RuntimeError("gemini down"))
+        rf = _publish()
+        check("D2 extraction failure still builds official_reference doc",
+              rf["canonical"]["doc_kind"] == "official_reference")
+        check("D2 extraction failure yields no news-update", "news-update" not in rf["canonical"]["tags"])
     finally:
         posting._extract, posting.validate = orig_extract, orig_validate
+
+
+# ---------------------------------------------------------------------------
+# Unit — seed driver HTML body extraction (offline, mocked fetch)
+# ---------------------------------------------------------------------------
+
+def run_unit_driver() -> None:
+    print("\nUnit E — seed_official_reference.fetch_page_text")
+    import seed_official_reference as driver
+
+    body_para = (
+        "SEVIS tracks F-1 and M-1 nonimmigrant students and J-1 exchange visitors. "
+        "The I-901 SEVIS fee is required before a student can be issued a visa, and "
+        "SEVP certifies the schools that may enroll these students under federal "
+        "immigration regulations governing student and exchange visitor status today."
+    )
+    html = (
+        "<html><head><title>t</title><style>.x{}</style></head><body>"
+        "<nav>Home About Menu Search</nav><header>Site Header Banner</header>"
+        f"<main><article><h1>SEVP</h1><p>{body_para}</p></article></main>"
+        "<footer>Footer privacy links contact</footer>"
+        "<script>console.log('tracker')</script></body></html>"
+    )
+
+    class _FakeResp:
+        text = html
+        def raise_for_status(self):  # noqa: D401
+            return None
+
+    orig_get = driver.requests.get
+    driver.requests.get = lambda *a, **k: _FakeResp()
+    try:
+        text = driver.fetch_page_text("https://example.test/x")
+        check("E1 body text extracted", "SEVIS tracks F-1 and M-1" in text)
+        check("E2 nav chrome stripped", "Home About Menu" not in text)
+        check("E3 footer chrome stripped", "Footer privacy links" not in text)
+        check("E4 script stripped", "tracker" not in text)
+    finally:
+        driver.requests.get = orig_get
+
+
+# ---------------------------------------------------------------------------
+# Integration — live round-trip into DS-1 with cleanup
+# ---------------------------------------------------------------------------
+
+def run_integration() -> None:
+    print("\nIntegration — live round-trip (publish → verify placement → delete)")
+    project = os.getenv("GCP_PROJECT_ID") or os.getenv("GCP_PROJECT", "")
+    if not project:
+        print("  SKIP: GCP_PROJECT_ID not set (live GCP required)")
+        return
+    import secrets
+    from google.api_core.client_options import ClientOptions
+    from google.cloud import discoveryengine_v1 as de
+
+    tag = secrets.token_hex(4)
+    url = f"https://example.test/official-ref-e2e-{tag}"
+    res = posting.publish_official_reference_item(
+        title=f"E2E official reference {tag}",
+        body_text=(f"Synthetic official-reference doc {tag}. Concerns F-1 and M-1 student "
+                   "visas and the SEVIS system. Created by test_official_reference."),
+        source_system="test-official",
+        full_url=url,
+        as_of_date="2026-09-19",
+        author_handle="E2E Official",
+        dry_run=False,
+    )
+    case_id = res["case_id"]
+    try:
+        check("INT1 published + indexed", res.get("indexed") is True, case_id)
+        loc = os.getenv("GCP_VERTEX_DATASTORE_LOCATION", "global")
+        client = de.DocumentServiceClient(client_options=ClientOptions(quota_project_id=project))
+        name = (f"projects/{project}/locations/{loc}/collections/default_collection"
+                f"/dataStores/imm-postings-datastore/branches/default_branch/documents/{case_id}")
+        got = client.get_document(name=name)
+        sd = dict(got.struct_data)
+        check("INT2 doc present in DS-1", got.id == case_id, got.id)
+        check("INT3 doc_kind == official_reference", sd.get("doc_kind") == "official_reference",
+              str(sd.get("doc_kind")))
+        check("INT4 channel == official", sd.get("channel") == "official", str(sd.get("channel")))
+        check("INT5 source_system == test-official", sd.get("source_system") == "test-official")
+    finally:
+        try:
+            posting.delete_content(case_id)
+            print(f"  (cleanup) deleted synthetic doc {case_id}")
+        except Exception as e:  # noqa: BLE001
+            print(f"  (cleanup) WARNING could not delete {case_id}: {e}")
 
 
 def main() -> None:
     scope = sys.argv[1] if len(sys.argv) > 1 else "unit"
     print("== test_official_reference ==")
     if scope in ("unit", "all"):
-        run_unit()
-    print(f"SUMMARY: {_passed}/{_passed + _failed} checks passed")
+        run_unit_publish()
+        run_unit_driver()
+    if scope in ("integration", "all"):
+        run_integration()
+    print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")
     sys.exit(1 if _failed else 0)
 
 

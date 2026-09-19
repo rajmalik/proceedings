@@ -71,7 +71,13 @@ def main() -> None:
         print(f"WARNING: no --as-of given; using today ({as_of}). For idempotent re-ingests, pin a stable date.")
 
     print(f"Fetching {args.url} ...")
-    body = fetch_page_text(args.url)
+    try:
+        body = fetch_page_text(args.url)
+    except requests.exceptions.RequestException as e:
+        print(f"  ABORT: could not fetch page — {type(e).__name__}: {e}")
+        print("  (some official sites, e.g. travel.state.gov, block simple fetchers — needs a "
+              "dedicated adapter; see GROUNDING-INGESTION-PLAN.md Phase 2.)")
+        sys.exit(1)
     words = len(body.split())
     print(f"  extracted {words} words")
     if words < _MIN_WORDS:
