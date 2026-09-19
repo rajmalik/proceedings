@@ -25,19 +25,63 @@ A polled RSS source is just a Firestore doc in the `news_sources` registry; the 
 `api.py:2154`) ingests it with **zero code change** when it is `fetch_method:"rss"` +
 `content_type:"news"` + `content_license:"public_domain"`.
 
+**Verified feeds** (researched 2026-09-19; US-gov works are public domain). Add one `news_sources`
+doc each (`fetch_method:"rss"`, `content_type:"news"`, `content_license:"public_domain"`,
+`channel:"gov_news"`), `enabled:false` until a dev poll confirms it:
+
+| Source | Feed URL | Status | Scope |
+|---|---|---|---|
+| USCIS — All News | `https://www.uscis.gov/news/rss-feed/59144` | ✅ verified live (RSS 2.0) | Immigration, agency-wide (mostly on-topic) |
+| USCIS — Forms updates | `https://www.uscis.gov/forms/forms-updates/rss-feed` | ⚠️ found, not fetch-verified | Immigration forms |
+| Federal Register — USCIS | `https://www.federalregister.gov/api/v1/documents.rss?conditions[agencies][]=u-s-citizenship-and-immigration-services` | ✅ verified live | USCIS rulemaking, **agency-scoped (cleanest)** |
+| Federal Register — other imm agencies | same URL, swap agency slug: `u-s-immigration-and-customs-enforcement`, `u-s-customs-and-border-protection`, `executive-office-for-immigration-review` | pattern verified | Immigration rulemaking, agency-scoped |
+| DOL (OFLC) | hub `https://www.dol.gov/rss` (OFLC-specific feed unconfirmed) | ⚠️ **broad** | Labor — **not immigration-scoped → needs relevance filter** |
+| CBP newsroom | hub `https://www.cbp.gov/about/rss` | ⚠️ **broad** | Customs/border — **needs relevance filter** |
+| DOS / travel.state.gov visa news | — | ❌ **no RSS found** | Move to Phase-2 scraper; Visa Bulletin is HTML anyway |
+
+**Recommended Phase-1 starters (clean, agency-scoped, low-noise):** USCIS All News + the Federal
+Register agency-scoped feeds. DOL/CBP only *after* the relevance filter (below) is in place. DOS has
+no RSS → defer to Phase 2.
+
 **Work:**
-- [ ] Add a seed/registry step (mirror `news_sources.upsert_source()` `news_sources.py`) for new
-      agency feeds. Candidates (verify each exposes a real RSS feed; US-gov works are public domain):
-      USCIS newsroom, DOS / travel.state.gov visa news, DOL (OFLC), CBP, Federal Register
-      (immigration docket). One `news_sources` doc each: `display_name, site_url, fetch_method:"rss",
-      feed_url, source_category, content_license:"public_domain", content_type:"news", channel:"gov_news"`.
-- [ ] Confirm each feed URL + license before enabling (`enabled:false` until verified).
-- [ ] Trigger `POST /internal/gov-news/poll` (dev) → confirm docs land in DS-1
-      (`channel="gov_news"`, `doc_kind="gov_news"`), dedup by `content_hash` works, thin-description
+- [ ] Add the verified feeds above via `news_sources.upsert_source()` (`news_sources.py`), `enabled:false`.
+- [ ] Enable + trigger `POST /internal/gov-news/poll` (dev) per source → confirm docs land in DS-1
+      (`channel="gov_news"`, `doc_kind="gov_news"`), `content_hash` dedup works, thin-description
       fallback fires where needed.
 
 **No new code path** unless a source is non-RSS (then it belongs in Phase 2's adapter work).
 Dedup, thin-description fallback, and the two safety gates are already handled.
+
+---
+
+## Immigration-relevance filter (REQUIRED — applies to both phases)
+
+**Gap in the current pipeline:** `gov_news_poll` has **no topic gate** — the only gates are
+`content_license == "public_domain"` and `content_type == "news"` (`news_sources.py:56-62`). Every
+item from an enabled feed is published; `_extract()` *tags* items but never *drops* off-topic ones.
+So a broad agency feed (DOL, CBP, Federal Register general) would leak **non-immigration** content
+into the immigration RAG and degrade grounding. The sources are U.S.-gov and immigration-*intended*,
+but nothing today guarantees immigration-*only*.
+
+**Fix — a two-layer relevance gate before publish:**
+1. **Prefer tightly-scoped feeds** (agency-scoped Federal Register, USCIS newsroom) so there is little
+   off-topic content to begin with — the cheapest control.
+2. **Add `_is_immigration_relevant(item) -> bool`** applied in `gov_news_poll.poll_source()`
+   (`gov_news_poll.py:139`) **before** `posting.publish_gov_news_item()`, for *both* gov-news and
+   authoritative sources:
+   - **Deterministic pre-filter (free):** keyword/allow-list on title+summary — e.g. `visa`,
+     `green card`, `USCIS`, `naturalization`, `asylum`, `H-1B`, `I-\d{3}`, `priority date`,
+     `adjustment of status`, `permanent resident`, consulate names. Drop obvious misses.
+   - **Optional LLM check (borderline only):** reuse the Gemini client (`_extract`) to classify
+     immigration-relevant yes/no; drop on no. Keep it to items that pass step 1 but are ambiguous, to
+     bound cost.
+   - Per-source override: a `skip_relevance_filter:true` flag on already-immigration-only feeds
+     (e.g. the USCIS feeds) to avoid needless LLM calls.
+- [ ] Add the filter + a `relevance_gate` counter to the poll summary (dropped vs published).
+- [ ] **Test:** fixture with on- and off-topic items from a broad feed → only on-topic items publish.
+
+> This gate is what makes "official U.S.-gov feeds" actually mean "U.S.-immigration content." Enable
+> the broad feeds (DOL/CBP) **only after** it's in place.
 
 ---
 
@@ -122,7 +166,8 @@ updates). Wrong/stale official data is worse than none.
    then processing times, forms/fees, policy text.
 
 ## Open decisions (confirm before Phase 2 build)
-- Exact Phase-1 feed list (which agencies) + verified RSS URLs.
+- Phase-1 feeds: USCIS + Federal Register (agency-scoped) are **verified** and ready; decide whether
+  to include DOL/CBP (broad — only after the relevance filter) and confirm the USCIS Forms feed.
 - Phase-2 source order (proposed: Visa Bulletin → processing times → forms/fees → policy text).
 - Auto-poll vs. review-gated publish for authoritative sources (recommend **review-gated**).
 - Re-poll cadence per source.
