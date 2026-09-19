@@ -158,7 +158,24 @@ updates). Wrong/stale official data is worse than none.
       `content_hash_for()` fingerprint gov-news uses) against the last-stored hash for
       (source_system, url) and skips before `_extract()`/GCS/datastore/BigQuery. So "same source,
       unchanged content, next run → skipped"; changed content upserts the one stable doc.
-- [ ] Record fetch cadence per source; re-poll on schedule (Cloud Scheduler, same as gov-news).
+- [x] **Scheduled poll BUILT** — `official_reference_poll.py` (`SOURCES` registry + `poll_all`) and the
+      internal route `POST /internal/official-reference/poll` (same `_require_internal` secret as
+      gov-news). Verified working on a candidate Cloud Run revision (both docs returned, secret-gated).
+- [ ] **Remaining (post-merge, post-prod-deploy): create the Cloud Scheduler job.** The route only
+      serves once this code is merged (PR) and deployed to the **prod serving revision** — today prod
+      is pinned to an older `candidate` revision, so the route 404s on the live URL until then. After
+      it's live in prod, create the weekly job (mirrors `gov-news-poll-uscis`):
+      ```bash
+      SECRET=$(gcloud scheduler jobs describe gov-news-poll-uscis --location us-central1 \
+        --format="value(httpTarget.headers.X-Internal-Poll-Secret)")
+      gcloud scheduler jobs create http official-reference-poll --location us-central1 \
+        --schedule="0 7 * * 1" --time-zone="America/New_York" --http-method=POST \
+        --uri="https://immiguide-api-971592620882.us-central1.run.app/internal/official-reference/poll" \
+        --headers="X-Internal-Poll-Secret=$SECRET"
+      ```
+      Weekly is ample (reference pages change rarely; unchanged runs are no-ops via the content-hash
+      guardrail). Then `gcloud scheduler jobs run official-reference-poll` once to seed, and confirm the
+      docs in DS-1/BigQuery.
 
 > **Decision D-B (2026-09-19):** `ice.gov/sevis` stays on the **`official_reference`** path, NOT
 > `gov_news` — it is evergreen student-visa *reference*, not time-bound *news*, so it is deliberately
