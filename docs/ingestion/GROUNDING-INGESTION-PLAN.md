@@ -20,6 +20,19 @@ Everything lands via the single publish spine already in `backend/posting.py`:
 
 ## Phase 1 — More gov-agency news (config-first, near-zero code)
 
+> **Current production baseline (verified 2026-09-19).** USCIS is **already live** — the
+> `news_sources` registry has a single enabled source `uscis`
+> (`https://www.uscis.gov/news/rss-feed/59144`, since 2026-07-26). BigQuery shows **278 unique
+> articles / 335 rows, latest today**, arriving **1–4 new items/day** — i.e. ingestion is genuinely
+> **incremental** (content-hash dedup + INCREMENTAL datastore upsert), not full-feed re-pulls. So the
+> pipeline is proven end-to-end in prod, and **Phase 1 = add the *other* agencies, NOT re-add USCIS.**
+>
+> *Known minor issue:* ~17% duplicate rows (an unchanged item occasionally re-inserted with the same
+> `content_hash`) exist **only in the BigQuery analytics table** — likely a streaming-buffer timing gap
+> in the gov-news delete-before-insert. **No grounding impact** (DS-1 is idempotent by `case_id`).
+> Small hardening item: make `_write_bigquery`'s edit-delete robust to the streaming buffer (or
+> MERGE-upsert) so the analytics table stays 1-row-per-article.
+
 A polled RSS source is just a Firestore doc in the `news_sources` registry; the existing
 `gov_news_poll.poll_all()` (`gov_news_poll.py:238`, route `POST /internal/gov-news/poll`
 `api.py:2154`) ingests it with **zero code change** when it is `fetch_method:"rss"` +
@@ -31,7 +44,7 @@ doc each (`fetch_method:"rss"`, `content_type:"news"`, `content_license:"public_
 
 | Source | Feed URL | Status | Scope |
 |---|---|---|---|
-| USCIS — All News | `https://www.uscis.gov/news/rss-feed/59144` | ✅ verified live (RSS 2.0) | Immigration, agency-wide (mostly on-topic) |
+| USCIS — All News | `https://www.uscis.gov/news/rss-feed/59144` | ✅ **ALREADY INGESTING** (registry `uscis`, enabled since 2026-07-26) | Immigration, agency-wide — **baseline, do NOT re-add** |
 | USCIS — Forms updates | `https://www.uscis.gov/forms/forms-updates/rss-feed` | ⚠️ found, not fetch-verified | Immigration forms |
 | Federal Register — USCIS | `https://www.federalregister.gov/api/v1/documents.rss?conditions[agencies][]=u-s-citizenship-and-immigration-services` | ✅ verified live | USCIS rulemaking, **agency-scoped (cleanest)** |
 | Federal Register — other imm agencies | same URL, swap agency slug: `u-s-immigration-and-customs-enforcement`, `u-s-customs-and-border-protection`, `executive-office-for-immigration-review` | pattern verified | Immigration rulemaking, agency-scoped |
@@ -39,9 +52,9 @@ doc each (`fetch_method:"rss"`, `content_type:"news"`, `content_license:"public_
 | CBP newsroom | hub `https://www.cbp.gov/about/rss` | ⚠️ **broad** | Customs/border — **needs relevance filter** |
 | DOS / travel.state.gov visa news | — | ❌ **no RSS found** | Move to Phase-2 scraper; Visa Bulletin is HTML anyway |
 
-**Recommended Phase-1 starters (clean, agency-scoped, low-noise):** USCIS All News + the Federal
-Register agency-scoped feeds. DOL/CBP only *after* the relevance filter (below) is in place. DOS has
-no RSS → defer to Phase 2.
+**Recommended Phase-1 NEW work (USCIS already done):** the **Federal Register agency-scoped feeds**
+(USCIS/ICE/CBP/EOIR — clean, low-noise) are the immediate add. **DOL/CBP** newsroom hubs only *after*
+the relevance filter (below) is in place. **DOS** has no RSS → defer to Phase 2.
 
 **Work:**
 - [ ] Add the verified feeds above via `news_sources.upsert_source()` (`news_sources.py`), `enabled:false`.
