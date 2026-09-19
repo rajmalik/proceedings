@@ -146,9 +146,19 @@ factual text docs** with an explicit as-of date, e.g.:
 ### 2.5 Freshness / supersession
 Authoritative data changes on a cadence (Visa Bulletin monthly; processing times rolling; fees on
 updates). Wrong/stale official data is worse than none.
-- [ ] Deterministic `case_id` per (source, period) so a new period **upserts/supersedes** cleanly
-      (INCREMENTAL import is idempotent by `case_id`).
+- [x] **Dedup guardrail IMPLEMENTED** (`publish_official_reference_item(skip_if_unchanged=True)`): a
+      re-run over an unchanged page is a **no-op** — it compares the page's `content_hash` (the same
+      `content_hash_for()` fingerprint gov-news uses) against the last-stored hash for
+      (source_system, url) and skips before `_extract()`/GCS/datastore/BigQuery. A changed page
+      re-publishes; INCREMENTAL import upserts the same `case_id`. So "same source, unchanged content,
+      next run → skipped."
 - [ ] Record fetch cadence per source; re-poll on schedule (Cloud Scheduler, same as gov-news).
+
+> **Decision D-B (2026-09-19):** `ice.gov/sevis` stays on the **`official_reference`** path, NOT
+> `gov_news` — it is evergreen student-visa *reference*, not time-bound *news*, so it is deliberately
+> **not** shown in the News tab and **not** tagged `news-update`. (If ICE *news* is wanted later, the
+> true USCIS-equivalent is ICE's own feed `ice.gov/rss/ice-breaking-news` as a `gov_news` source —
+> but that's enforcement news, off-topic for applicants, and needs the relevance filter.)
 
 ---
 

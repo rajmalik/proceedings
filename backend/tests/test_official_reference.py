@@ -147,6 +147,57 @@ def run_unit_driver() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Unit — dedup guardrail (skip_if_unchanged), offline
+# ---------------------------------------------------------------------------
+
+def run_unit_dedup() -> None:
+    print("\nUnit F — dedup guardrail (skip_if_unchanged)")
+    names = ("_extract", "validate", "_bq_content_hash",
+             "_write_gcs", "_import_to_datastore", "_write_bigquery")
+    orig = {n: getattr(posting, n) for n in names}
+    posting._extract = _STUB_EXTRACT
+    posting.validate = lambda c: []
+    posting._write_gcs = lambda c, body: ("gs://test/md", "gs://test/json")
+    posting._import_to_datastore = lambda c, uri: None
+    posting._write_bigquery = lambda c, **k: None
+    same_hash = posting.content_hash_for("T", "B")
+
+    def pub(**over):
+        kw = dict(title="T", body_text="B", source_system="ice", full_url=URL,
+                  as_of_date="2026-09-19", dry_run=False)
+        kw.update(over)
+        return posting.publish_official_reference_item(**kw)
+
+    try:
+        posting._bq_content_hash = lambda ss, sid: same_hash  # unchanged
+        r1 = pub()
+        check("F1 unchanged content is skipped (no write)",
+              r1.get("skipped") is True and r1.get("indexed") is False)
+
+        r2 = pub(dry_run=True)
+        check("F2 dry_run bypasses dedup (not skipped)",
+              not r2.get("skipped") and "canonical" in r2)
+
+        posting._bq_content_hash = lambda ss, sid: "a-different-hash"  # changed
+        r3 = pub()
+        check("F3 changed content publishes (indexed)",
+              r3.get("indexed") is True and not r3.get("skipped"))
+
+        posting._bq_content_hash = lambda ss, sid: None  # never ingested
+        r4 = pub()
+        check("F4 new source publishes (indexed)",
+              r4.get("indexed") is True and not r4.get("skipped"))
+
+        posting._bq_content_hash = lambda ss, sid: same_hash  # matches, but flag off
+        r5 = pub(skip_if_unchanged=False)
+        check("F5 skip_if_unchanged=False publishes despite match",
+              r5.get("indexed") is True and not r5.get("skipped"))
+    finally:
+        for n, v in orig.items():
+            setattr(posting, n, v)
+
+
+# ---------------------------------------------------------------------------
 # Integration — live round-trip into DS-1 with cleanup
 # ---------------------------------------------------------------------------
 
@@ -200,6 +251,7 @@ def main() -> None:
     if scope in ("unit", "all"):
         run_unit_publish()
         run_unit_driver()
+        run_unit_dedup()
     if scope in ("integration", "all"):
         run_integration()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")

@@ -1922,9 +1922,35 @@ def publish_gov_news_item(title: str, description: str, source_system: str,
     }
 
 
+def _bq_content_hash(source_system: str, source_item_id: str) -> str | None:
+    """Latest stored content_hash for one (source_system, source_item_id) pair —
+    the dedup guardrail so an UNCHANGED official-reference page is not re-ingested
+    on a repeat run. Mirrors gov_news_poll._existing_hashes()' content-hash check,
+    scoped to a single item. Returns None if never ingested, or on any BigQuery
+    error (fail-open: a lookup failure must not block a legitimate publish)."""
+    try:
+        from google.cloud import bigquery
+        client = bigquery.Client(project=_project())
+        sql = (
+            f"SELECT content_hash FROM `{_project()}.postings.postings_metadata` "
+            "WHERE source_system=@ss AND source_item_id=@sid "
+            "ORDER BY ingestion_timestamp DESC LIMIT 1"
+        )
+        cfg = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("ss", "STRING", source_system),
+            bigquery.ScalarQueryParameter("sid", "STRING", source_item_id),
+        ])
+        for row in client.query(sql, job_config=cfg).result():
+            return row["content_hash"]
+    except Exception as e:  # noqa: BLE001 - fail-open on lookup error
+        print(f"posting: official-reference dedup lookup failed ({e}); proceeding with publish")
+    return None
+
+
 def publish_official_reference_item(
     title: str, body_text: str, source_system: str, full_url: str,
     as_of_date: str, author_handle: str = "", dry_run: bool = False,
+    skip_if_unchanged: bool = True,
 ) -> dict:
     """Publish an authoritative, static official-reference page (e.g. ICE SEVIS,
     a USCIS policy page, a Visa Bulletin narrative) into DS-1 for grounding —
@@ -1950,6 +1976,13 @@ def publish_official_reference_item(
     updated" date) — defaulting it to "today" would mint a new doc on every
     re-fetch, so an empty value is rejected.
 
+    `skip_if_unchanged=True` (the default) is the dedup guardrail: before doing
+    any work, it compares this page's content_hash to the last-stored hash for
+    (source_system, full_url) and SKIPS the whole publish — no _extract(), no
+    GCS/datastore/BigQuery write — when identical. So a repeat run over an
+    unchanged page is a no-op; a changed page re-publishes (and INCREMENTAL
+    import upserts the same case_id). Skipped for `dry_run`.
+
     `dry_run=True` builds + validates the canonical and returns it (under the
     "canonical" key) WITHOUT any GCS/datastore/BigQuery write — for tests and a
     safe driver default."""
@@ -1957,6 +1990,23 @@ def publish_official_reference_item(
         raise ValueError(
             "as_of_date is required (a stable effective date) for official_reference idempotency"
         )
+
+    # Dedup guardrail: same content fingerprint the gov-news poll uses. Skip a
+    # real publish entirely when this source's last-stored content_hash matches
+    # — no re-run of _extract() (Gemini) or re-write of GCS/datastore/BigQuery.
+    content_hash = content_hash_for(title, body_text)
+    if skip_if_unchanged and not dry_run:
+        prior = _bq_content_hash(source_system, full_url)
+        if prior is not None and prior == content_hash:
+            print(f"posting: official-reference {full_url} unchanged (content_hash match) — skipping")
+            return {
+                "skipped": True,
+                "reason": "unchanged",
+                "indexed": False,
+                "content_hash": content_hash,
+                "full_url": full_url,
+            }
+
     try:
         extracted = _extract(title, body_text)
     except Exception as e:  # noqa: BLE001 - publish with minimal tags rather than fail

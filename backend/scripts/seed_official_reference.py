@@ -93,6 +93,9 @@ def main() -> None:
         author_handle=args.author,
         dry_run=not args.commit,
     )
+    if res.get("skipped"):
+        print(f"  SKIPPED — {res.get('reason')} (content unchanged since last ingest); nothing written.")
+        return
     print(f"  case_id : {res['case_id']}")
     print(f"  gcs_path: {res['gcs_path']}")
     print(f"  doc_kind: official_reference | indexed: {res.get('indexed')}")
