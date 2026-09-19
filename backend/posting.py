@@ -1922,6 +1922,86 @@ def publish_gov_news_item(title: str, description: str, source_system: str,
     }
 
 
+def publish_official_reference_item(
+    title: str, body_text: str, source_system: str, full_url: str,
+    as_of_date: str, author_handle: str = "", dry_run: bool = False,
+) -> dict:
+    """Publish an authoritative, static official-reference page (e.g. ICE SEVIS,
+    a USCIS policy page, a Visa Bulletin narrative) into DS-1 for grounding —
+    the Phase-2 "authoritative official data" path in
+    docs/ingestion/GROUNDING-INGESTION-PLAN.md. NOT wired to any HTTP route.
+
+    Like publish_gov_news_item() (fully-automated _extract() tagging; skips
+    scrub_pii()/moderation.check_text() — official government content, not a
+    live user submission), but:
+      - doc_kind = "official_reference" — evergreen reference, NOT "gov_news",
+        so it is deliberately NOT carved out of free-text search by the News
+        tab's 7-day recency rule (GROUNDING-INGESTION-PLAN.md); it should always
+        be groundable.
+      - channel = "official", ingestion_method = "official_fetch".
+      - never tagged "news-update" (it isn't news) — the strip half of
+        _gov_news_tags() guarantees this even if _extract() self-selects it.
+
+    Idempotency: case_id = official-{source_system}-{as_of_date}-{sha8(full_url)}
+    (build_canonical's stable-id scheme, source_item_id=full_url). Re-ingesting
+    the SAME page with the SAME `as_of_date` upserts in place (INCREMENTAL
+    import keyed by case_id); bumping `as_of_date` publishes the next version.
+    `as_of_date` is REQUIRED and must be STABLE (the page's effective / "last
+    updated" date) — defaulting it to "today" would mint a new doc on every
+    re-fetch, so an empty value is rejected.
+
+    `dry_run=True` builds + validates the canonical and returns it (under the
+    "canonical" key) WITHOUT any GCS/datastore/BigQuery write — for tests and a
+    safe driver default."""
+    if not as_of_date:
+        raise ValueError(
+            "as_of_date is required (a stable effective date) for official_reference idempotency"
+        )
+    try:
+        extracted = _extract(title, body_text)
+    except Exception as e:  # noqa: BLE001 - publish with minimal tags rather than fail
+        print(f"posting: extraction for official-reference item failed ({e}); publishing with minimal tags")
+        extracted = {}
+
+    tags = dict(extracted)
+    # Official reference is NOT news — strip any model-chosen `news-update`
+    # (reuses the deterministic strip half of _gov_news_tags for a non-"news"
+    # content_type).
+    tags["tags"] = _gov_news_tags(extracted.get("tags") or [], "official_reference")
+
+    canonical = build_canonical(
+        title, body_text, tags,
+        extracted.get("key_stages_or_info"), extracted.get("key_dates"), extracted,
+        channel="official", ingestion_method="official_fetch",
+        source_system=source_system, full_url=full_url,
+        posting_date=as_of_date, author_handle=author_handle,
+        source_item_id=full_url,
+    )
+    # Post-hoc override, same pattern as publish_gov_news_item(): doc_kind (not
+    # channel) is the indexable/filterable field.
+    canonical["doc_kind"] = "official_reference"
+    errs = validate(canonical)
+    if errs:
+        raise ValueError("; ".join(errs))
+
+    result = {
+        "case_id": canonical["case_id"],
+        "gcs_path": canonical["gcs_path"],
+        "author_handle": canonical["author_handle"],
+    }
+    if dry_run:
+        result["indexed"] = False
+        result["dry_run"] = True
+        result["canonical"] = canonical
+        return result
+
+    md_uri, _json_uri = _write_gcs(canonical, _markdown_body(title, body_text))
+    _import_to_datastore(canonical, md_uri)
+    _write_bigquery(canonical, pipeline_run_id="official-reference", delete_existing=False)
+    result["indexed"] = True
+    return result
+
+
 def publish_immihelp_posting(title: str, description: str, source_item_id: str,
                              full_url: str, posting_date: str, dry_run: bool = False) -> dict:
     """One-time, bounded sample-seed publish path for immihelp.com/experiences/
