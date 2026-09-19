@@ -119,7 +119,16 @@ fit the news-article model, so it gets its own kind + handler + adapters.
 
 ### 2.3 Per-source fetch adapters (non-RSS)
 `poll_source()` (`gov_news_poll.py:139`) only has an RSS adapter today ("no adapter yet" otherwise).
-Add adapters, one per source, starting highest-value:
+Add adapters, one per source. **Confirmed first source (evaluated 2026-09-19):**
+- [ ] **ICE SEVIS** — `https://www.ice.gov/sevis` (F/M/J student & exchange visas, SEVP/SEVIS, I-901
+      fee, OPT). Authoritative ICE.gov, public domain, immigration-relevant. It's a
+      **narrative/landing page (~1.2–1.5k words) → lowest adapter effort** (single-page body fetch à la
+      `_fetch_full_article_text`, no table parsing) — a good **minimal first slice** to prove the
+      `official_reference` path end-to-end. Also pull its substantive sub-pages (Study in the States,
+      SEVIS Help Hub) for depth; carry an explicit **"as of {date}"** note (it has a "What's New"
+      banner + rule updates → regulation-currency risk).
+
+Then the highest-value structured sources:
 - [ ] **Visa Bulletin** (monthly HTML tables @ travel.state.gov) — parse priority-date tables.
 - [ ] **USCIS processing times** — per form/office estimates.
 - [ ] **Forms & fees** — USCIS forms/fee schedule.
@@ -175,8 +184,9 @@ updates). Wrong/stale official data is worse than none.
 
 ## Sequencing
 1. **Phase 1** (fast win, low risk) — add + verify gov-agency RSS feeds.
-2. **Phase 2, source-by-source** — start with **Visa Bulletin** (highest value, well-structured),
-   then processing times, forms/fees, policy text.
+2. **Phase 2, source-by-source** — prove the `official_reference` path with the **ICE SEVIS** narrative
+   page (smallest slice, no parsing), then the highest-value structured source **Visa Bulletin**, then
+   processing times, forms/fees, policy text.
 
 ## Open decisions (confirm before Phase 2 build)
 - Phase-1 feeds: USCIS + Federal Register (agency-scoped) are **verified** and ready; decide whether
