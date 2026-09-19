@@ -84,18 +84,17 @@ def run_unit_publish() -> None:
         check("B2 legitimate tags kept", "sevis" in c["tags"] and "student-visa" in c["tags"])
 
         short = hashlib.sha256(URL.encode()).hexdigest()[:8]
-        check("C1 case_id scheme", c["case_id"] == f"official-ice-2026-09-19-{short}")
+        check("C1 case_id is URL-only (no date)", c["case_id"] == f"official-ice-{short}")
         check("C2 gcs prefix under /official/", "/official/" in c["gcs_path"])
         check("C3 idempotent case_id on re-ingest", _publish()["case_id"] == res["case_id"])
-        check("C4 new as_of_date supersedes", _publish(as_of_date="2026-10-01")["case_id"] != res["case_id"])
+        check("C4 as_of_date does NOT change case_id (one stable doc)",
+              _publish(as_of_date="2026-10-01")["case_id"] == res["case_id"])
         check("C5 different URL → different case_id",
               _publish(full_url="https://www.ice.gov/other")["case_id"] != res["case_id"])
 
-        try:
-            _publish(as_of_date="")
-            check("D1 empty as_of_date rejected", False)
-        except ValueError:
-            check("D1 empty as_of_date rejected", True)
+        check("D1 as_of_date optional (defaults; still one stable id)",
+              _publish(as_of_date="")["case_id"] == res["case_id"])
+        check("D1b posting_date is the as_of metadata", c["posting_date"] == "2026-09-19")
 
         # D2: extraction failure → publish with minimal tags, does not crash
         posting._extract = lambda t, d: (_ for _ in ()).throw(RuntimeError("gemini down"))
@@ -157,7 +156,7 @@ def run_unit_dedup() -> None:
     orig = {n: getattr(posting, n) for n in names}
     posting._extract = _STUB_EXTRACT
     posting.validate = lambda c: []
-    posting._write_gcs = lambda c, body: ("gs://test/md", "gs://test/json")
+    posting._write_gcs = lambda c, body, base_override=None: ("gs://test/md", "gs://test/json")
     posting._import_to_datastore = lambda c, uri: None
     posting._write_bigquery = lambda c, **k: None
     same_hash = posting.content_hash_for("T", "B")

@@ -68,7 +68,8 @@ def main() -> None:
 
     as_of = args.as_of or date.today().isoformat()
     if not args.as_of:
-        print(f"WARNING: no --as-of given; using today ({as_of}). For idempotent re-ingests, pin a stable date.")
+        print(f"note: no --as-of given; using today ({as_of}) as effective-date metadata. "
+              "The doc id is keyed on the URL, so re-runs always upsert one stable doc.")
 
     print(f"Fetching {args.url} ...")
     try:

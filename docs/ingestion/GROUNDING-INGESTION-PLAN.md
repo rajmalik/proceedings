@@ -115,7 +115,8 @@ fit the news-article model, so it gets its own kind + handler + adapters.
       (`posting.py:1848`): skip `scrub_pii`/`moderation` (official content); run `_extract()` for
       tags; override `canonical["doc_kind"]="official_reference"`;
       `ingestion_method="official_fetch"`, `source_system=<agency slug>`,
-      `full_url=<official page>`, deterministic `case_id` (stable-id scheme).
+      `full_url=<official page>`, `case_id = official-{source_system}-{sha8(url)}` (URL-only → one
+      stable doc per page; a changed page upserts in place).
 
 ### 2.3 Per-source fetch adapters (non-RSS)
 `poll_source()` (`gov_news_poll.py:139`) only has an RSS adapter today ("no adapter yet" otherwise).
@@ -146,12 +147,17 @@ factual text docs** with an explicit as-of date, e.g.:
 ### 2.5 Freshness / supersession
 Authoritative data changes on a cadence (Visa Bulletin monthly; processing times rolling; fees on
 updates). Wrong/stale official data is worse than none.
+- [x] **One stable doc per URL (IMPLEMENTED).** `case_id = official-{source_system}-{sha8(url)}` —
+      keyed on the URL only, **not** the date — and the GCS object + BigQuery row are keyed the same
+      way (delete-before-insert). So a changed page **upserts the same doc in place**; there are never
+      dated versions to orphan, and `as_of_date` is just metadata (defaults to today). Periodic sources
+      (e.g. the monthly Visa Bulletin) get one doc *per month naturally* because each month is a
+      distinct URL.
 - [x] **Dedup guardrail IMPLEMENTED** (`publish_official_reference_item(skip_if_unchanged=True)`): a
       re-run over an unchanged page is a **no-op** — it compares the page's `content_hash` (the same
       `content_hash_for()` fingerprint gov-news uses) against the last-stored hash for
-      (source_system, url) and skips before `_extract()`/GCS/datastore/BigQuery. A changed page
-      re-publishes; INCREMENTAL import upserts the same `case_id`. So "same source, unchanged content,
-      next run → skipped."
+      (source_system, url) and skips before `_extract()`/GCS/datastore/BigQuery. So "same source,
+      unchanged content, next run → skipped"; changed content upserts the one stable doc.
 - [ ] Record fetch cadence per source; re-poll on schedule (Cloud Scheduler, same as gov-news).
 
 > **Decision D-B (2026-09-19):** `ice.gov/sevis` stays on the **`official_reference`** path, NOT
@@ -184,7 +190,7 @@ updates). Wrong/stale official data is worse than none.
   rendered text) · a publish test for `publish_official_reference_item()` (mirror
   `test_posting_tagging.py` group E/G) · a grounding e2e (mirror `test_grounding_e2e.py`) proving an
   authoritative doc is retrieved **and cited**, with synthetic-doc cleanup · a **freshness** test
-  (new period supersedes old by `case_id`).
+  (re-ingesting a changed page upserts the one URL-keyed `case_id` in place).
 
 ## Guardrails & constraints (this is a legal-advice-sensitive product)
 - Authoritative docs are **factual statements with an as-of date + official-source citation** — the
