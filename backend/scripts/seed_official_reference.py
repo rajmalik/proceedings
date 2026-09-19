@@ -24,36 +24,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # backend/ on path
 
-import requests  # noqa: E402
-from bs4 import BeautifulSoup  # noqa: E402
+import requests  # noqa: E402 - kept for the RequestException catch below
 
 import posting  # noqa: E402
+from official_reference_poll import fetch_page_text, _MIN_WORDS  # noqa: E402 - shared with the poll route
 
 DEFAULT_URL = "https://www.ice.gov/sevis"
 DEFAULT_TITLE = "Student and Exchange Visitor Program (SEVP) / SEVIS"
 DEFAULT_SOURCE_SYSTEM = "ice"
 DEFAULT_AUTHOR = "ICE SEVP"
-
-# Try progressively broader containers; strip chrome first.
-_BODY_SELECTORS = ["main article", "article", "main", "#main-content", "#content", "body"]
-_MIN_WORDS = 50
-
-
-def fetch_page_text(url: str) -> str:
-    """Best-effort single-page body-text extraction. Strips script/style/nav/
-    header/footer chrome, then takes the first container with real content."""
-    r = requests.get(url, timeout=20, headers={"User-Agent": "meridianjourney-grounding-bot/1.0"})
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
-    for tag in soup(["script", "style", "nav", "header", "footer", "form", "noscript"]):
-        tag.decompose()
-    for sel in _BODY_SELECTORS:
-        el = soup.select_one(sel)
-        if el:
-            txt = el.get_text(separator=" ", strip=True)
-            if len(txt.split()) >= _MIN_WORDS:
-                return txt
-    return soup.get_text(separator=" ", strip=True)
 
 
 def main() -> None:

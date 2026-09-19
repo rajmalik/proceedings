@@ -2163,6 +2163,19 @@ def gov_news_poll_route(request: Request, source: str = "", dry_run: bool = Fals
     return {"results": poll_all(source_slug=source, dry_run=dry_run)}
 
 
+@app.post("/internal/official-reference/poll")
+def official_reference_poll_route(request: Request, dry_run: bool = False):
+    """Cloud Scheduler target — fetch the registered authoritative reference
+    pages (backend/official_reference_poll.py SOURCES) and upsert each into DS-1
+    (one stable doc per URL; unchanged pages are skipped via the content_hash
+    guardrail). NOT public: gated by _require_internal() on the same
+    X-Internal-Poll-Secret as the gov-news poll. `dry_run=true` fetches +
+    classifies without writing."""
+    _require_internal(request)
+    from official_reference_poll import poll_all
+    return {"results": poll_all(dry_run=dry_run)}
+
+
 # ---------------------------------------------------------------------------
 # Find users in same boat + groups (phase-M). The expert chat builds match
 # criteria; criteria are validated against the profile via the existing

@@ -111,8 +111,8 @@ def run_unit_publish() -> None:
 # ---------------------------------------------------------------------------
 
 def run_unit_driver() -> None:
-    print("\nUnit E — seed_official_reference.fetch_page_text")
-    import seed_official_reference as driver
+    print("\nUnit E — official_reference_poll.fetch_page_text")
+    import official_reference_poll as orp
 
     body_para = (
         "SEVIS tracks F-1 and M-1 nonimmigrant students and J-1 exchange visitors. "
@@ -133,16 +133,34 @@ def run_unit_driver() -> None:
         def raise_for_status(self):  # noqa: D401
             return None
 
-    orig_get = driver.requests.get
-    driver.requests.get = lambda *a, **k: _FakeResp()
+    orig_get = orp.requests.get
+    orp.requests.get = lambda *a, **k: _FakeResp()
     try:
-        text = driver.fetch_page_text("https://example.test/x")
+        text = orp.fetch_page_text("https://example.test/x")
         check("E1 body text extracted", "SEVIS tracks F-1 and M-1" in text)
         check("E2 nav chrome stripped", "Home About Menu" not in text)
         check("E3 footer chrome stripped", "Footer privacy links" not in text)
         check("E4 script stripped", "tracker" not in text)
     finally:
-        driver.requests.get = orig_get
+        orp.requests.get = orig_get
+
+
+def run_unit_poll() -> None:
+    print("\nUnit G — official_reference_poll.poll_all")
+    import official_reference_poll as orp
+    orig = (orp.fetch_page_text, posting._extract, posting.validate)
+    orp.fetch_page_text = lambda url: "SEVIS tracks F-1 and M-1 students. " * 20  # >50 words
+    posting._extract = _STUB_EXTRACT
+    posting.validate = lambda c: []
+    try:
+        results = orp.poll_all(dry_run=True)
+        check("G1 one result per registered source", len(results) == len(orp.SOURCES))
+        check("G2 all published (dry_run)", all(r.get("status") == "published" for r in results))
+        check("G3 each has a URL-keyed case_id",
+              all(str(r.get("case_id", "")).startswith("official-") for r in results))
+        check("G4 registry has ICE SEVIS", any(s["url"] == "https://www.ice.gov/sevis" for s in orp.SOURCES))
+    finally:
+        orp.fetch_page_text, posting._extract, posting.validate = orig
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +269,7 @@ def main() -> None:
         run_unit_publish()
         run_unit_driver()
         run_unit_dedup()
+        run_unit_poll()
     if scope in ("integration", "all"):
         run_integration()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")
