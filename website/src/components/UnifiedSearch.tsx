@@ -9,6 +9,8 @@ import PostingCard, { type PostingCardData } from '@/components/PostingCard'
 import Markdown from '@/components/Markdown'
 import { AppliedFilters } from '@/components/StrictnessSlider'
 import SuggestedFilters, { facetId, type SuggestedFilterGroup } from '@/components/SuggestedFilters'
+import AiAssist from '@/components/AiAssist'
+import { AI_ASSIST_ENABLED } from '@/lib/flags'
 
 type QueryTag = { field: string; code: string; label: string }
 
@@ -350,7 +352,7 @@ export default function UnifiedSearch() {
 
       {error && <div className="card text-error mb-4">{error}</div>}
 
-      <div className={`grid gap-6 ${(!AI_MODE_ENABLED || aiCollapsed) ? 'lg:grid-cols-[15rem_1fr]' : 'lg:grid-cols-[15rem_1fr_24rem]'}`}>
+      <div className={`grid gap-6 ${(AI_ASSIST_ENABLED || (AI_MODE_ENABLED && !aiCollapsed)) ? 'lg:grid-cols-[15rem_1fr_24rem]' : 'lg:grid-cols-[15rem_1fr]'}`}>
         {/* ===== LEFT — refine ===== */}
         <aside className="space-y-4">
           {/* The client's own record of what's currently filtering the
@@ -506,6 +508,9 @@ export default function UnifiedSearch() {
             </p>
           </aside>
         )}
+
+        {/* ===== RIGHT — AI Assist (v8 conversational router; flag-gated) ===== */}
+        {AI_ASSIST_ENABLED && <AiAssist />}
       </div>
     </div>
   )
