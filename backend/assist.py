@@ -480,6 +480,24 @@ def _has_timeline_signal(decision: dict) -> bool:
     return (decision.get("timeline_processing_type") or "").strip() in valid
 
 
+# The shown routing explanation (A5) must never read as an eligibility / case-
+# outcome assessment (E2 — a new surface the query.py answer prompt doesn't
+# cover). Blank a rationale that trips these, rather than show it. Best-effort
+# keyword guard, in the spirit of moderation.check_text.
+_RATIONALE_BLOCK = (
+    re.compile(r"\byou\b[^.]{0,25}\b(qualif\w*|eligib\w*|ineligible|approv\w*|denied|deny)\b", re.I),
+    re.compile(r"\byour\s+(case|petition|application|visa|green\s*card|eligibility)\b[^.]{0,25}\b(will|would|should|likely|approv\w*|denied)\b", re.I),
+    re.compile(r"\b(ineligible|not eligible|guaranteed|approval is likely)\b", re.I),
+)
+
+
+def _clean_rationale(text) -> str:
+    t = (text or "").strip()
+    if not t:
+        return ""
+    return "" if any(p.search(t) for p in _RATIONALE_BLOCK) else t
+
+
 def handle_turn(message: str, history=None, *, force_intent: str = "",
                 project_id: str = "", location: str = "global", engine_id: str = "",
                 db=None) -> dict:
@@ -512,7 +530,7 @@ def handle_turn(message: str, history=None, *, force_intent: str = "",
         "disclaimer": disclaimer_for(""),
         "can_post": True,
         "can_find_timeline": (intent == "timeline-find") or _has_timeline_signal(decision),
-        "rationale": decision.get("rationale", ""),
+        "rationale": _clean_rationale(decision.get("rationale", "")),
         "is_fallback": False,
     }
 
