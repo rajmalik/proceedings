@@ -1,11 +1,13 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { ASSIST_OPEN_EVENT } from '@/lib/assistLauncher'
 
 // Hoisted spies so the vi.mock factories can reference them.
-const { push, writePostDraft } = vi.hoisted(() => ({ push: vi.fn(), writePostDraft: vi.fn() }))
+const { push, writePostDraft, pathname } = vi.hoisted(() => ({ push: vi.fn(), writePostDraft: vi.fn(), pathname: { value: '/find' } }))
 // pathname defaults to a non-home route so the fixed bottom-right launcher
-// renders in these tests (on "/" the launcher is inline in UnifiedSearch).
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push }), usePathname: () => '/find' }))
+// renders in these tests (on "/" the launcher is inline in UnifiedSearch). It's
+// mutable so the Home-suppression test can flip it to "/".
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push }), usePathname: () => pathname.value }))
 vi.mock('@/lib/assistDraft', () => ({ writePostDraft }))
 vi.mock('@/lib/assistSession', () => ({ getAssistSessionId: () => 'sess-test' }))
 // activeUser pulls in Firebase init at import time (throws in the test env with
@@ -44,6 +46,7 @@ function ask(text = 'hi') {
 
 beforeEach(() => {
   push.mockClear(); writePostDraft.mockClear(); localStorage.clear(); sessionStorage.clear()
+  pathname.value = '/find'
 })
 
 describe('AiAssist', () => {
@@ -201,5 +204,48 @@ describe('AiAssist', () => {
     render(<AiAssist />)
     ask('another one')
     expect(await screen.findByText(/sign in/i)).toBeInTheDocument()
+  })
+
+  it('hides the fixed launcher on the Home page (it lives inline in the search row there)', () => {
+    pathname.value = '/'
+    render(<AiAssist />)
+    expect(screen.queryByRole('button', { name: 'Ask AI/Post' })).toBeNull()
+    expect(screen.queryByLabelText('Ask or post a question')).toBeNull()
+  })
+
+  it('opens on the ASSIST_OPEN_EVENT even on Home (dispatched by the inline launcher)', () => {
+    pathname.value = '/'
+    render(<AiAssist />)
+    act(() => { window.dispatchEvent(new Event(ASSIST_OPEN_EVENT)) })
+    expect(screen.getByLabelText('Ask or post a question')).toBeInTheDocument()
+  })
+
+  it('composer is large on the first message, compact once the chat is active', async () => {
+    fetchReturns({ data: resp({ answer: 'first answer body.' }) })
+    render(<AiAssist />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI/Post' }))
+    // First message: no active conversation -> the large (flex-1) composer.
+    const first = screen.getByLabelText('Ask or post a question')
+    expect(first.className).toContain('flex-1')
+    expect(first.className).not.toContain('h-20')
+    // Send one -> conversation active -> compact (fixed-height) composer.
+    fireEvent.change(first, { target: { value: 'hello' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+    await screen.findByText('first answer body.')
+    const active = screen.getByLabelText('Ask or post a question')
+    expect(active.className).toContain('h-20')
+    expect(active.className).not.toContain('flex-1')
+  })
+
+  it('timeline (unresolved): "Go to the timeline page" uses the prefilled find_url', async () => {
+    fetchReturns({ data: resp({
+      intent: 'timeline-find', answer: '', can_find_timeline: true,
+      timeline: { status: 'unresolved', group_id: '', group_name: '', criteria: {},
+        find_url: '/find?type=timeline&processing_type=EAD' },
+    }) })
+    render(<AiAssist />)
+    ask('how long is EAD for H-1B extension taking?')
+    const link = (await screen.findByText(/Go to the timeline page/)).closest('a')
+    expect(link).toHaveAttribute('href', '/find?type=timeline&processing_type=EAD')
   })
 })

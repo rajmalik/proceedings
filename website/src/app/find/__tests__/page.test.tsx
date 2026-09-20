@@ -10,9 +10,11 @@ vi.mock('@/lib/activeUser', () => ({
   DEMO_PICKER_ENABLED: true,
 }))
 const push = vi.fn()
+// searchParams is mutable so the deep-link tests can set ?type=timeline&…
+const { sp } = vi.hoisted(() => ({ sp: { value: new URLSearchParams() } }))
 vi.mock('next/navigation', () => ({
   usePathname: () => '/',
-  useSearchParams: () => new URLSearchParams(), useRouter: () => ({ push }) }))
+  useSearchParams: () => sp.value, useRouter: () => ({ push }) }))
 
 // The base period pair every Timeline scope leads with. The server resolves
 // it onto each option before sending, so fixtures carry it the same way.
@@ -160,6 +162,7 @@ function enterCreateMode(groupType: 'regular' | 'timeline' = 'regular') {
 beforeEach(() => {
   vi.restoreAllMocks()
   push.mockReset()
+  sp.value = new URLSearchParams()
 })
 
 describe('FindPage — resilience to a bad /api/users response', () => {
@@ -1371,5 +1374,42 @@ describe('FindPage — Month everywhere, no Cycle', () => {
       expect(screen.getByLabelText('Year')).toBeInTheDocument()
       expect(screen.queryByLabelText('Cycle')).toBeNull()
     }
+  })
+})
+
+// The AI-Assist timeline button hands off as
+// /find?type=timeline&processing_type=..&eligibility=..&filing_month=..&filing_year=..
+// The panel must open on the Find/create Timeline tab with those prefilled.
+describe('FindPage — timeline deep-link prefill (AI Assist handoff)', () => {
+  it('opens the Timeline Find/create panel with the processing type prefilled', async () => {
+    sp.value = new URLSearchParams('type=timeline&processing_type=EAD')
+    mockFetch()
+    render(<FindPage />)
+    // "Processing type" only renders inside the Find/create tab in Timeline
+    // mode, so its presence proves both tab + groupType were switched.
+    const ptype = await screen.findByLabelText('Processing type')
+    await waitFor(() => expect((ptype as HTMLSelectElement).value).toBe('EAD'))
+    // no eligibility param -> left for the user to pick
+    expect((screen.getByLabelText('Eligibility category') as HTMLSelectElement).value).toBe('')
+  })
+
+  it('prefills eligibility + filing month/year from a full deep-link', async () => {
+    sp.value = new URLSearchParams(
+      'type=timeline&processing_type=EAD&eligibility=stem-opt-extension&filing_month=Aug&filing_year=2026')
+    mockFetch()
+    render(<FindPage />)
+    const ptype = await screen.findByLabelText('Processing type')
+    await waitFor(() => expect((ptype as HTMLSelectElement).value).toBe('EAD'))
+    expect((screen.getByLabelText('Eligibility category') as HTMLSelectElement).value).toBe('stem-opt-extension')
+    await waitFor(() => expect((screen.getByLabelText('Month') as HTMLSelectElement).value).toBe('Aug'))
+    expect((screen.getByLabelText('Year') as HTMLSelectElement).value).toBe('2026')
+  })
+
+  it('does NOT prefill / switch tabs when there is no timeline deep-link', async () => {
+    // Default (no params) -> lands on the browse "Groups" tab, no panel.
+    mockFetch()
+    render(<FindPage />)
+    await waitFor(() => expect(screen.getByText('Find groups in the same boat')).toBeInTheDocument())
+    expect(screen.queryByLabelText('Processing type')).toBeNull()
   })
 })
