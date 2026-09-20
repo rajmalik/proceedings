@@ -27,6 +27,7 @@ from google import genai
 import posting  # shared genai_client() + _retry()
 import query  # generate_direct_answer (ungrounded fallback)
 import search_client  # answer_query (grounded retrieval)
+import matching  # timeline group search + preview (Phase 5)
 
 # Five-way taxonomy (§5.1). A tuple (not an Enum) so a future "ask-attorney" is a
 # prompt + branch change, no schema migration (Q6 — extensible enum).
@@ -339,3 +340,105 @@ def _post_draft(decision: dict, message: str) -> dict:
         "key_stages_or_info": tags.get("key_stages_or_info", {}),
         "key_dates": tags.get("key_dates", {}),
     }
+
+
+# ===========================================================================
+# Phase 5 — timeline -> /find handoff (EAD/H-1B processing cohorts)
+# ===========================================================================
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _normalize_month(raw: str) -> str:
+    """Coerce a month to the 3-letter option Timeline scope rows use
+    ('08'/'8'/'August'/'aug' -> 'Aug'); '' when it can't be resolved."""
+    m = (raw or "").strip()
+    if not m:
+        return ""
+    if m.isdigit():
+        i = int(m)
+        return _MONTHS[i - 1] if 1 <= i <= 12 else ""
+    m3 = m[:3].title()
+    return m3 if m3 in _MONTHS else ""
+
+
+def _normalize_year(raw: str) -> str:
+    y = (raw or "").strip()
+    return y if (y.isdigit() and len(y) == 4) else ""
+
+
+def resolve_timeline_criteria(decision: dict) -> dict:
+    """Map a router decision's timeline_* fields into the exact Timeline criteria
+    shape /find's panel produces (so a server-side search matches groups the UI
+    created). Each processing-type / eligibility value lands in
+    `current_visa_or_greencard_category` when it is in the visa vocab, else in
+    `tags` (mirrors /find's processingTypeField); month/year go into
+    key_stages_or_info per timeline_scope_rows.
+
+    Returns {criteria, processing_type, eligibility, filing_month, filing_year,
+    sufficient}. `sufficient` (Q13) means enough to search a cohort: a valid
+    processing type + filing month + year, and an eligibility when the type has
+    categories."""
+    valid_types = {t["value"] for t in posting.PROCESSING_TYPES}
+    ptype = (decision.get("timeline_processing_type") or "").strip()
+    if ptype not in valid_types:
+        ptype = ""
+
+    type_row = next((t for t in posting.PROCESSING_TYPES if t["value"] == ptype), None)
+    cats = {c["tag"] for c in (type_row or {}).get("eligibility_categories", []) or []}
+    elig = (decision.get("timeline_eligibility") or "").strip()
+    if elig not in cats:
+        elig = ""
+
+    month = _normalize_month(decision.get("timeline_filing_month"))
+    year = _normalize_year(decision.get("timeline_filing_year"))
+
+    visa = set(posting.vocab_lists().get("visa") or [])
+    criteria: dict = {
+        "tags": [], "current_visa_or_greencard_category": [],
+        "key_stages_or_info": {}, "key_dates": {},
+    }
+    for val in (ptype, elig):
+        if not val:
+            continue
+        field = "current_visa_or_greencard_category" if val in visa else "tags"
+        criteria[field].append(val)
+
+    by_key = {r["key"]: r for r in posting.timeline_scope_rows(ptype, elig)}
+    for key, value in (("filing_month", month), ("filing_year", year)):
+        row = by_key.get(key)
+        if row and value:
+            criteria.setdefault(row.get("field", "key_stages_or_info"), {})[key] = value
+
+    type_has_cats = bool(cats)
+    sufficient = bool(ptype and month and year and (elig or not type_has_cats))
+    return {
+        "criteria": criteria,
+        "processing_type": ptype,
+        "eligibility": elig,
+        "filing_month": month,
+        "filing_year": year,
+        "sufficient": sufficient,
+    }
+
+
+def _timeline_handoff(decision: dict, db) -> dict:
+    """Route an EAD/H-1B timeline turn to a group (Q12). Uses the PUBLIC group
+    search (no auth) to find the cohort; hands a /groups/{id} deep-link when one
+    exists, else the would-be group name for the /find create tab. Insufficient
+    criteria (Q13) -> 'unresolved' (send the user to /find generically). Returns
+    {status, group_id, group_name, criteria}."""
+    r = resolve_timeline_criteria(decision)
+    criteria = r["criteria"]
+    if not r["sufficient"]:
+        return {"status": "unresolved", "group_id": "", "group_name": "", "criteria": criteria}
+
+    groups = matching.search_groups(db, criteria, "timeline", "balanced", 0) if db is not None else []
+    if groups:
+        g = groups[0]
+        return {"status": "found", "group_id": g.get("group_id", ""),
+                "group_name": g.get("name", ""), "criteria": criteria}
+
+    preview = matching.preview_timeline_group(criteria, "timeline")
+    return {"status": "not_found", "group_id": "",
+            "group_name": preview.get("name", ""), "criteria": criteria}
