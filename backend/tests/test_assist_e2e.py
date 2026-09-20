@@ -126,6 +126,23 @@ def run_integration() -> None:
     check("I5b handle_turn always attaches a disclaimer", bool(out.get("disclaimer")))
     print(f"     handle_turn intent={out.get('intent')} tier={out.get('source_tier')}")
 
+    # I6 — web-search tier (Option B): a long-tail question not in our curated
+    # corpus should ground live via Google Search with citations + the Search-
+    # Suggestion chips (flag forced on for this check).
+    orig_flag = assist._WEB_SEARCH_ENABLED
+    assist._WEB_SEARCH_ENABLED = True
+    try:
+        w = assist.answer_cascade("What are the eligibility requirements for U.S. naturalization?",
+                                  project_id=project, location=loc, engine_id=engine)
+    finally:
+        assist._WEB_SEARCH_ENABLED = orig_flag
+    check("I6 web tier grounds a long-tail question", w["source_tier"] in {"gov", "web"}, w["source_tier"])
+    if w["source_tier"] == "web":
+        check("I6b web answer has citations", len(w["citations"]) > 0)
+        check("I6c web answer has the Search-Suggestion chips", bool(w.get("search_suggestions_html")))
+    print(f"     web tier: source_tier={w['source_tier']} citations={len(w['citations'])} "
+          f"chips={'yes' if w.get('search_suggestions_html') else 'no'}")
+
 
 def main() -> None:
     scope = sys.argv[1] if len(sys.argv) > 1 else "integration"
