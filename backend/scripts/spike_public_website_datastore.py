@@ -121,7 +121,8 @@ def status() -> None:
     sse = f"{_COLLECTION}/dataStores/{_DS_ID}/siteSearchEngine"
     print("target sites:")
     for ts in site_client.list_target_sites(parent=sse):
-        print(f"  {ts.indexing_status.name:12s}  {ts.provided_uri_pattern}"
+        pat = ts.provided_uri_pattern or ts.generated_uri_pattern
+        print(f"  {ts.indexing_status.name:28s}  {pat}"
               + (f"  (failure: {ts.failure_reason})" if ts.failure_reason else ""))
 
 
