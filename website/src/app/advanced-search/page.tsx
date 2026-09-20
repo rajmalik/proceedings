@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import PostingCard, { type PostingCardData } from '@/components/PostingCard'
 import { facetId } from '@/components/SuggestedFilters'
 import TagAutocomplete from '@/components/TagAutocomplete'
@@ -37,7 +38,8 @@ const CATEGORY_FIELDS: { field: TagField; label: string; kind: 'visa' | 'consula
   { field: 'tags', label: 'Tags', kind: 'tag' },
 ]
 
-export default function AdvancedSearchPage() {
+function AdvancedSearchInner() {
+  const searchParams = useSearchParams()
   const [freeText, setFreeText] = useState('')
   const [tags, setTags] = useState<Tag[]>([])
   const [strictness, setStrictness] = useStrictness()
@@ -60,6 +62,13 @@ export default function AdvancedSearchPage() {
   const [searchLoading, setSearchLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [searched, setSearched] = useState(false)
+
+  // Pre-fill the free-text box from ?q= (e.g. the AI Assist "Search community
+  // forum" button hands off the user's question here).
+  useEffect(() => {
+    const q = searchParams?.get('q')
+    if (q) setFreeText(q)
+  }, [searchParams])
 
   useEffect(() => {
     fetch('/api/tag-vocab').then((r) => r.json()).then((d) => setVocab({
@@ -296,5 +305,15 @@ export default function AdvancedSearchPage() {
         </div>
       )}
     </div>
+  )
+}
+
+// useSearchParams() (the ?q= pre-fill) requires a Suspense boundary or Next 14
+// fails the production build. (Same pattern as /post.)
+export default function AdvancedSearchPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdvancedSearchInner />
+    </Suspense>
   )
 }

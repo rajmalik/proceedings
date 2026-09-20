@@ -1119,6 +1119,12 @@ def group_g_api() -> None:
     from fastapi.testclient import TestClient
     import api
     api.RATE_LIMIT_MAX = 100000
+    # /api/postings now requires a signed-in author (an earlier auth-hardening
+    # change). Impersonate a fresh, PROFILE-LESS uid via X-User-Id (dev/test
+    # path) — deterministic: it has no visa/status, so a personal post hits the
+    # profile gate (422) while a discussion is exempt and publishes.
+    api.ALLOW_USER_IMPERSONATION = True
+    AUTH = {"X-User-Id": f"new-e2e-{os.urandom(4).hex()}"}
 
     with TestClient(api.app) as client:
         vocab = client.get("/api/tag-vocab").json()
@@ -1136,33 +1142,36 @@ def group_g_api() -> None:
               ("groups", "relevant_sections", "posting_type", "key_stages_or_info", "key_dates")),
               f"status={sug.status_code}")
 
-        noviza = client.post("/api/postings", json={
+        # A personal-case post from a profile-less author is gated (422).
+        noviza = client.post("/api/postings", headers=AUTH, json={
             "title": "[E2E] no visa case",
             "description": "Deliberately omits any visa/status to exercise the required-visa validation path.",
             "tags": {"tags": ["general-inquiry"]},
         })
-        check("G3 publish without visa -> 422", noviza.status_code == 422,
+        check("G3 profile-less personal post -> 422", noviza.status_code == 422,
               f"status={noviza.status_code} detail={noviza.json().get('detail','')[:60]}")
 
-        pub = client.post("/api/postings", json={
-            "title": "[E2E] H-1B stamping approved at Mumbai",
-            "description": "Went for H-1B visa stamping at the Mumbai consulate, interview on 2026-05-20, approved.",
-            "tags": {"visa_applying_for": ["H-1B"], "consulates": ["BOM"],
-                     "tags": ["visa-stamping", "approved"]},
-            "key_stages_or_info": {"visa_status": "approved"},
-            "key_dates": {"visa_interview_date": "2026-05-20"},
+        # A discussion is exempt from BOTH the author-profile gate and the
+        # content visa-required rule (validate()'s _NO_PERSONAL_STATUS_TAGS), so
+        # it publishes end to end even from a profile-less author.
+        pub = client.post("/api/postings", headers=AUTH, json={
+            "title": "[E2E] How premium processing works",
+            "description": "A general explainer on premium processing across form types — not my own case.",
+            "tags": {"tags": ["discussion"]},
         })
         pj = pub.json()
         ok_pub = pub.status_code == 200 and pj.get("case_id", "").startswith("app-")
-        check("G4 publish with visa -> 200 + app case_id", ok_pub,
-              f"status={pub.status_code} case_id={pj.get('case_id')}")
+        check("G4 discussion post (exempt) -> 200 + app case_id", ok_pub,
+              f"status={pub.status_code} case_id={pj.get('case_id')} detail={pj.get('detail','')}")
 
         if ok_pub:
             cid = pj["case_id"]
             detail = client.get(f"/api/postings/{cid}").json()
-            check("G5 published doc retrievable from datastore",
+            check("G5 published discussion retrievable from datastore",
                   detail.get("title", "").startswith("[E2E]") and detail.get("channel") == "app",
                   f"title={detail.get('title')}")
+            check("G5b published doc carries the discussion tag",
+                  "discussion" in (detail.get("tags", []) or []), str(detail.get("tags")))
             notes = _cleanup(cid, pj["gcs_path"])
             check("G6 cleanup of E2E test doc", "deleted" in notes, notes)
 

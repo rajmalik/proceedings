@@ -75,6 +75,15 @@ jobs:
           python tests/test_auth_gate.py unit
           python tests/test_moderation.py unit
           python tests/test_official_reference.py unit
+          python tests/test_assist_primitives.py
+          python tests/test_assist.py
+          python tests/test_assist_cascade.py
+          python tests/test_assist_post.py
+          python tests/test_assist_timeline.py
+          python tests/test_assist_route.py
+          python tests/test_assist_hardening.py
+          python tests/test_assist_routing_edges.py
+          python tests/test_assist_websearch.py
 
   website:
     needs: changes

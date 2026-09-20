@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense,useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense,useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import TagAutocomplete from '@/components/TagAutocomplete'
@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { getActiveUser, setActiveUser, userHeaders, DEMO_PICKER_ENABLED } from '@/lib/activeUser'
 import { CHECKBOX_ON, type PostJoinRow } from '@/lib/postJoinAttributes'
 import { useRequireUser } from '@/lib/useRequireUser'
+import { useSearchParams } from 'next/navigation'
 
 // backend/posting.py's PROCESSING_TYPES. `eligibility_categories` empty means
 // that type has no second dropdown. Both a type and a category carry the
@@ -352,6 +353,49 @@ function FindPageInner() {
   function removeTag(field: TagField, code: string) {
     setTags((prev) => prev.filter((t) => !(t.field === field && t.code === code)))
   }
+
+  // Pre-fill from a deep-link — the AI Assist "Find people in the same boat"
+  // button hands off as /find?type=regular&q=<situation>&visa=<code>. Runs once.
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    if (!searchParams) return
+    const type = searchParams.get('type')
+    const q = searchParams.get('q')
+    const visa = searchParams.get('visa')
+    if (type === 'regular') { setTab('find'); setGroupType('regular') }
+    if (q) setDescription(q)
+    if (visa) addTag('current_visa_or_greencard_category', visa)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+
+  // Timeline deep-link — the AI Assist timeline button hands off as
+  // /find?type=timeline&processing_type=EAD&eligibility=<tag>&filing_month=Aug&
+  // filing_year=2026. Deferred until the vocab (processing_types) has loaded, so
+  // selectProcessingType/selectEligibility resolve the right criteria field and
+  // the Cycle/Year scope rows exist to receive month/year. Runs once.
+  const timelinePrefilled = useRef(false)
+  useEffect(() => {
+    if (timelinePrefilled.current || !searchParams) return
+    if (searchParams.get('type') !== 'timeline') return
+    if (vocab.processing_types.length === 0) return  // wait for the vocab
+    timelinePrefilled.current = true
+    setTab('find'); setGroupType('timeline')
+    const pt = searchParams.get('processing_type') || ''
+    const el = searchParams.get('eligibility') || ''
+    const fm = searchParams.get('filing_month') || ''
+    const fy = searchParams.get('filing_year') || ''
+    if (pt) {
+      selectProcessingType(pt)          // also clears eligibility + scope values
+      if (el) selectEligibility(el)     // ...which selectEligibility then re-clears
+    }
+    // Set filing month/year LAST — the select* calls above reset scopeValues.
+    if (fm || fy) {
+      setScopeValues((prev) => ({
+        ...prev, ...(fm ? { filing_month: fm } : {}), ...(fy ? { filing_year: fy } : {}),
+      }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, vocab.processing_types])
 
   // "Processing type" — a dedicated top-of-panel dropdown that both selects
   // which tag_attribute_templates entry drives the Cycle/Year fields below,
