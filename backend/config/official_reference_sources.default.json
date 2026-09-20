@@ -13,6 +13,42 @@
       "title": "Study in the States — Students (F/M)",
       "source_system": "study-in-the-states",
       "author": "DHS Study in the States"
+    },
+    {
+      "url": "https://www.uscis.gov/ar-11",
+      "title": "AR-11, Alien's Change of Address Card",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/addresschange",
+      "title": "How to Change Your Address (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/i-765",
+      "title": "Form I-765, Application for Employment Authorization (EAD)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/i-140",
+      "title": "Form I-140, Immigrant Petition for Alien Workers",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/i-485",
+      "title": "Form I-485, Application to Register Permanent Residence or Adjust Status",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/i-130",
+      "title": "Form I-130, Petition for Alien Relative",
+      "source_system": "uscis",
+      "author": "USCIS"
     }
   ]
 }

@@ -155,6 +155,8 @@ def run_unit_config() -> None:
     default = orp.load_sources()
     check("H1 default config loads sources", len(default) >= 2)
     check("H2 config has ICE SEVIS", any(s["url"] == "https://www.ice.gov/sevis" for s in default))
+    check("H2b config now grounds USCIS AR-11 (change of address)",
+          any(s["url"] == "https://www.uscis.gov/ar-11" and s["source_system"] == "uscis" for s in default))
 
     # a custom config file is honored (add/remove without code change)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:

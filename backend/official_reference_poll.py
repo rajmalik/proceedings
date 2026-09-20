@@ -96,7 +96,7 @@ def poll_all(dry_run: bool = False) -> list[dict]:
     import posting
 
     results: list[dict] = []
-    for src in SOURCES:
+    for src in load_sources():  # re-read each run so a config change is picked up
         url = src["url"]
         row: dict = {"url": url, "source_system": src["source_system"]}
         try:

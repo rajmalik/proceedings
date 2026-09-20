@@ -29,23 +29,43 @@ ingestion machinery, just new **sources** (now configurable) + a fetch caveat.
   `OFFICIAL_REFERENCE_SOURCES_PATH`). Add/remove a source by editing the JSON —
   no code change. Version-controlled so the trust-sensitive set stays auditable.
 
-## Candidate USCIS pages (immigration-relevant, reasonably static)
+## USCIS pages — verified + added to the config (2026-09-20)
 
-Add to the config **after fetchability verification** (below). Start narrow with
-high-frequency factual pages:
+Fetchability-checked with `official_reference_poll.fetch_page_text` (extracted
+word count in parens). The six that extract clean body text are now in
+`config/official_reference_sources.default.json` (`source_system: uscis`):
 
-| Purpose | URL | source_system |
+| Purpose | URL | status |
 |---|---|---|
-| Change of address / AR-11 | `https://www.uscis.gov/ar-11` | `uscis` |
-| Change of address (overview) | `https://www.uscis.gov/addresschange` | `uscis` |
-| Form I-765 (EAD) | `https://www.uscis.gov/i-765` | `uscis` |
-| Form I-140 | `https://www.uscis.gov/i-140` | `uscis` |
-| Form I-485 (AOS) | `https://www.uscis.gov/i-485` | `uscis` |
-| Form I-130 | `https://www.uscis.gov/i-130` | `uscis` |
-| Check case processing times | `https://egov.uscis.gov/processing-times/` | `uscis` |
+| Change of address / AR-11 | `https://www.uscis.gov/ar-11` | ✅ added (515w) |
+| Change of address (overview) | `https://www.uscis.gov/addresschange` | ✅ added (1451w) |
+| Form I-765 (EAD) | `https://www.uscis.gov/i-765` | ✅ added (3965w) |
+| Form I-140 | `https://www.uscis.gov/i-140` | ✅ added (1272w) |
+| Form I-485 (AOS) | `https://www.uscis.gov/i-485` | ✅ added (2679w) |
+| Form I-130 | `https://www.uscis.gov/i-130` | ✅ added (2982w) |
+| Check case processing times | `https://egov.uscis.gov/processing-times/` | ❌ 403 (bot-blocked) — needs an adapter; deferred |
 
 (Extend incrementally; each addition is one JSON entry. Keep it to genuinely
 static, authoritative pages — not news, not application flows.)
+
+## Refresh cadence (Cloud Scheduler) — no new job
+
+**Determination: the existing weekly Cloud Scheduler job refreshes these.** There
+is already a job `official-reference-poll` (Mondays 07:00 ET) → `POST
+/internal/official-reference/poll` → `official_reference_poll.poll_all()`, which
+now iterates the **config-driven** source registry (`load_sources()`, re-read on
+every run). So adding USCIS to the config means the **same job** keeps uscis.gov
+grounded — **no new scheduler job is needed**; USCIS just joins the existing run.
+
+- **Dedup:** `publish_official_reference_item(skip_if_unchanged=True)` — an
+  unchanged page is skipped via the content-hash guardrail, so a weekly re-run is
+  a cheap no-op; a changed page re-publishes one stable doc per URL.
+- **Deploy note:** the config ships **inside the image** (`config/` is COPYed at
+  build), so today adding/removing a source needs a backend redeploy for prod to
+  see it. Follow-up: a Firestore override (à la `attribute_config`) would make
+  source changes **deploy-free** — `load_sources()` already isolates the load
+  point for that.
+- **Constraint:** no Pub/Sub — verify a run via GCS + BigQuery.
 
 ## The one real risk: fetchability
 
