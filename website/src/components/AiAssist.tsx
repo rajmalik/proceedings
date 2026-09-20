@@ -273,6 +273,12 @@ export default function AiAssist() {
   // sessionStorage) and the first client render agree.
   if (!mounted) return null
 
+  // Sizing: on the FIRST message (no active conversation) the writing area is
+  // large (~70%) so a full post can be drafted comfortably. Once the
+  // conversation is active it shrinks to a compact composer and the reading log
+  // takes over the space.
+  const active = turns.length > 0
+
   // Collapsed: a floating launcher pinned to the bottom-right on EVERY page, so
   // the user can reopen and continue the conversation from anywhere. There is no
   // separate "Post a message" button — posting starts from inside this chat and
@@ -319,11 +325,12 @@ export default function AiAssist() {
         </div>
       </header>
 
-      {/* Conversation log — capped so the writing area stays large; scrolls. */}
+      {/* Conversation log — grows to fill once the chat is active; capped small
+          on the first message so the writing area stays large. Scrolls. */}
       <div
         ref={scrollRef}
-        className="overflow-y-auto px-4 py-3 space-y-4 shrink-0 border-b border-outline-variant"
-        style={{ maxHeight: '30%' }}
+        className={`overflow-y-auto px-4 py-3 space-y-4 border-b border-outline-variant ${active ? 'flex-1 min-h-0' : 'shrink-0'}`}
+        style={active ? undefined : { maxHeight: '30%' }}
       >
         {turns.length === 0 ? (
           <p className="text-caption text-on-surface-variant">
@@ -360,7 +367,7 @@ export default function AiAssist() {
           drafted). Enter inserts a newline; Cmd/Ctrl+Enter or the button sends. */}
       <form
         onSubmit={(e) => { e.preventDefault(); send(input) }}
-        className="flex-1 flex flex-col p-3 gap-2 min-h-0"
+        className={`flex flex-col p-3 gap-2 min-h-0 ${active ? 'shrink-0' : 'flex-1'}`}
       >
         <textarea
           value={input}
@@ -368,7 +375,7 @@ export default function AiAssist() {
           onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(input) } }}
           placeholder="Ask a question, or describe your situation to post it…"
           aria-label="Ask or post a question"
-          className="flex-1 min-h-0 resize-none bg-surface-container-lowest border border-outline-variant rounded-xl px-4 py-3 text-body-md focus:outline-none focus:border-primary"
+          className={`resize-none bg-surface-container-lowest border border-outline-variant rounded-xl px-4 py-3 text-body-md focus:outline-none focus:border-primary ${active ? 'h-20 shrink-0' : 'flex-1 min-h-0'}`}
         />
         <div className="flex items-center justify-end shrink-0">
           <button type="submit" disabled={input.trim().length < 2 || loading} className="btn-primary rounded-full disabled:opacity-40">Ask</button>
