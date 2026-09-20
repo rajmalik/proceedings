@@ -309,18 +309,9 @@ export default function UnifiedSearch() {
     }
   }
 
-  // Persistent top-right Post action (both landing & results). Gated like the
-  // old TopAppBar button (Firebase user OR dev-mode picker). Collapses to "Post".
-  const postButton = canPost ? (
-    <Link
-      href="/post"
-      className="btn-primary rounded-full flex items-center gap-1.5 shrink-0 whitespace-nowrap"
-    >
-      <span className="material-symbols-outlined text-[20px]">edit_square</span>
-      <span className="hidden sm:inline">Post a new message</span>
-      <span className="sm:hidden">Post</span>
-    </Link>
-  ) : null
+  // The old top-right "Post a new message" button was removed — posting is now
+  // initiated from inside the AI Assist chatbot, which routes the user to /post
+  // when the conversation implies they want to post.
 
   // ---------------- RESULTS (3 panels) ----------------
   // Always this layout now — the default (browse) feed is auto-loaded on
@@ -347,12 +338,11 @@ export default function UnifiedSearch() {
           <span className="material-symbols-outlined text-[20px]">tune</span>
           <span className="hidden sm:inline">Advanced Search</span>
         </Link>
-        <div className="ml-auto">{postButton}</div>
       </div>
 
       {error && <div className="card text-error mb-4">{error}</div>}
 
-      <div className={`grid gap-6 ${(AI_ASSIST_ENABLED || (AI_MODE_ENABLED && !aiCollapsed)) ? 'lg:grid-cols-[15rem_1fr_24rem]' : 'lg:grid-cols-[15rem_1fr]'}`}>
+      <div className={`grid gap-6 ${(AI_MODE_ENABLED && !aiCollapsed) ? 'lg:grid-cols-[15rem_1fr_24rem]' : 'lg:grid-cols-[15rem_1fr]'}`}>
         {/* ===== LEFT — refine ===== */}
         <aside className="space-y-4">
           {/* The client's own record of what's currently filtering the
@@ -509,9 +499,11 @@ export default function UnifiedSearch() {
           </aside>
         )}
 
-        {/* ===== RIGHT — AI Assist (v8 conversational router; flag-gated) ===== */}
-        {AI_ASSIST_ENABLED && <AiAssist />}
       </div>
+
+      {/* AI Assist — a collapsible floating chatbot (replaces the old Post button
+          and the static AI panel); flag-gated, fixed-position, so it's outside the grid. */}
+      {AI_ASSIST_ENABLED && <AiAssist />}
     </div>
   )
 }

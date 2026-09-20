@@ -44,6 +44,7 @@ export default function AiAssist() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [nudge, setNudge] = useState(false)
+  const [open, setOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const lastUserMessage = () => [...turns].reverse().find((t) => t.role === 'user')?.content || ''
@@ -178,14 +179,42 @@ export default function AiAssist() {
     )
   }
 
-  return (
-    <aside className="lg:border-l lg:border-outline-variant lg:pl-6" aria-label="AI Assist">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="material-symbols-outlined text-primary">auto_awesome</span>
-        <span className="text-label-md font-semibold text-primary">Ask AI</span>
-      </div>
+  // Collapsed: a floating launcher on the right rail. There is no separate
+  // "Post a message" button anymore — posting starts from inside this chat and
+  // routes to /post when the conversation implies it.
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        aria-label="Open AI Assist"
+        className="fixed bottom-5 right-5 z-40 btn-primary rounded-full shadow-lg flex items-center gap-2 px-4 py-3"
+      >
+        <span className="material-symbols-outlined">auto_awesome</span>
+        <span className="hidden sm:inline">Ask AI</span>
+      </button>
+    )
+  }
 
-      <div ref={scrollRef} className="space-y-4 max-h-[70vh] overflow-y-auto">
+  return (
+    <aside
+      aria-label="AI Assist"
+      className="fixed bottom-5 right-5 z-40 flex flex-col w-[24rem] max-w-[calc(100vw-2.5rem)] h-[70vh] max-h-[calc(100vh-2.5rem)] bg-surface-container-lowest border border-outline-variant rounded-2xl shadow-2xl"
+    >
+      <header className="flex items-center justify-between px-4 py-3 border-b border-outline-variant">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">auto_awesome</span>
+          <span className="text-label-md font-semibold text-primary">Ask AI</span>
+        </div>
+        <button
+          onClick={() => setOpen(false)}
+          aria-label="Collapse AI Assist"
+          className="p-1 rounded hover:bg-surface-container text-on-surface-variant"
+        >
+          <span className="material-symbols-outlined text-[20px]">close</span>
+        </button>
+      </header>
+
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {turns.length === 0 && (
           <p className="text-caption text-on-surface-variant">
             Ask an immigration question, describe your situation to post it, or ask about EAD/H-1B processing times.
@@ -209,14 +238,14 @@ export default function AiAssist() {
         )}
       </div>
 
-      {error && <p className="text-caption text-error mt-2">{error}</p>}
+      {error && <p className="text-caption text-error px-4">{error}</p>}
       {nudge && (
-        <p className="text-caption text-on-surface-variant mt-2">
+        <p className="text-caption text-on-surface-variant px-4">
           You&apos;ve reached the guest limit — <Link href="/login?next=/" className="text-primary hover:underline">sign in</Link> to keep asking.
         </p>
       )}
 
-      <form onSubmit={(e) => { e.preventDefault(); send(input) }} className="mt-3 flex items-center gap-2">
+      <form onSubmit={(e) => { e.preventDefault(); send(input) }} className="border-t border-outline-variant p-3 flex items-center gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}

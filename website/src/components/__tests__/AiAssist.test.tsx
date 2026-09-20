@@ -33,6 +33,9 @@ function fetchReturns(...responses: Array<{ ok?: boolean; status?: number; data:
 }
 
 function ask(text = 'hi') {
+  // The chatbot is collapsed by default — open it before interacting.
+  const launcher = screen.queryByRole('button', { name: 'Open AI Assist' })
+  if (launcher) fireEvent.click(launcher)
   fireEvent.change(screen.getByLabelText('Ask AI'), { target: { value: text } })
   fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
 }
@@ -42,6 +45,21 @@ beforeEach(() => {
 })
 
 describe('AiAssist', () => {
+  it('is collapsed by default: shows the launcher, not the chat input', () => {
+    render(<AiAssist />)
+    expect(screen.getByRole('button', { name: 'Open AI Assist' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Ask AI')).toBeNull()
+  })
+
+  it('expands on launch and collapses again (no separate Post button)', () => {
+    render(<AiAssist />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open AI Assist' }))
+    expect(screen.getByLabelText('Ask AI')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse AI Assist' }))
+    expect(screen.queryByLabelText('Ask AI')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Open AI Assist' })).toBeInTheDocument()
+  })
+
   it('renders a grounded answer with the inline disclaimer and a dated source', async () => {
     fetchReturns({ data: resp({
       answer: 'The H-1B grace period is 60 days.', source_tier: 'gov',
