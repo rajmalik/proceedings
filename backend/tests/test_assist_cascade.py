@@ -297,6 +297,72 @@ def group_f() -> None:
     check("F3 channel key always present", "channel" in no_ch)
 
 
+def group_w() -> None:
+    print("\nW — web-search tier in answer_cascade (Option B, flag-gated)")
+    orig_flag, orig_web, orig_gda = assist._WEB_SEARCH_ENABLED, assist._web_search_answer, query.generate_direct_answer
+    query.generate_direct_answer = lambda q: "ungrounded body"
+    web_calls: list = []
+
+    def fake_web(q):
+        web_calls.append(q)
+        return assist._answer_shape("live web answer", "web",
+                                    citations=[{"source": "https://redirect/x", "title": "uscis.gov", "as_of": ""}],
+                                    is_fallback=False, search_suggestions_html="<div>chips</div>")
+    try:
+        # flag ON: gov + community miss -> web tier (ungrounded NOT reached)
+        assist._WEB_SEARCH_ENABLED = True
+        assist._web_search_answer = fake_web
+        calls = []
+        og = _install_fake_answer({}, calls)
+        try:
+            d = assist.answer_cascade("q", project_id="p", location="global", engine_id="e")
+        finally:
+            search_client.answer_query = og
+        check("W1 flag on: gov+community miss -> web tier", d["source_tier"] == "web" and bool(web_calls))
+        check("W1b web result carries chips", d.get("search_suggestions_html") == "<div>chips</div>")
+
+        # flag ON but web ALSO misses (None) -> ungrounded
+        web_calls.clear()
+        assist._web_search_answer = lambda q: (web_calls.append(q) or None)
+        calls = []
+        og = _install_fake_answer({}, calls)
+        try:
+            d = assist.answer_cascade("q", project_id="p", location="global", engine_id="e")
+        finally:
+            search_client.answer_query = og
+        check("W2 web miss -> ungrounded", d["source_tier"] == "ungrounded" and bool(web_calls))
+
+        # flag OFF: web tier NOT called -> ungrounded
+        web_calls.clear()
+        assist._WEB_SEARCH_ENABLED = False
+        assist._web_search_answer = fake_web
+        calls = []
+        og = _install_fake_answer({}, calls)
+        try:
+            d = assist.answer_cascade("q", project_id="p", location="global", engine_id="e")
+        finally:
+            search_client.answer_query = og
+        check("W3 flag off: web NOT called -> ungrounded", d["source_tier"] == "ungrounded" and not web_calls)
+
+        # flag ON but gov GROUNDS -> web not called
+        web_calls.clear()
+        assist._WEB_SEARCH_ENABLED = True
+        calls = []
+        og = _install_fake_answer({assist._GOV_FILTER: _grounded([_chunk(source="https://uscis.gov/g")])}, calls)
+        try:
+            d = assist.answer_cascade("q", project_id="p", location="global", engine_id="e")
+        finally:
+            search_client.answer_query = og
+        check("W4 gov grounds -> web not called", d["source_tier"] == "gov" and not web_calls)
+
+        # flag ON, no engine -> straight to web tier
+        web_calls.clear()
+        d = assist.answer_cascade("q", project_id="p", location="global", engine_id="")
+        check("W5 no engine + flag on -> web tier", d["source_tier"] == "web" and bool(web_calls))
+    finally:
+        assist._WEB_SEARCH_ENABLED, assist._web_search_answer, query.generate_direct_answer = orig_flag, orig_web, orig_gda
+
+
 def main() -> None:
     print("== test_assist_cascade (AI-Assist Phase 3 — answer path) ==")
     group_a()
@@ -305,6 +371,7 @@ def main() -> None:
     group_d()
     group_e()
     group_f()
+    group_w()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")
     sys.exit(1 if _failed else 0)
 

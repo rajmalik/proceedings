@@ -403,18 +403,23 @@ def _web_search_answer(question: str):
 
 
 def answer_cascade(question: str, *, project_id: str, location: str, engine_id: str) -> dict:
-    """Resolve an answer gov-first, then community, then ungrounded (Q10). The
-    miss signal at each grounded tier is answer_query's is_fallback (Q3): a
+    """Resolve an answer: gov (DS-1) -> community -> [web search] -> ungrounded.
+    The miss signal at each grounded tier is answer_query's is_fallback (Q3): a
     genuinely experiential question naturally misses gov and falls to community.
-    With no Search engine configured, answer ungrounded directly."""
-    if not (project_id and engine_id):
-        return _ungrounded_answer(question)
-    gov = _gov_answer(question, project_id=project_id, location=location, engine_id=engine_id)
-    if gov is not None:
-        return gov
-    community = _community_answer(question, project_id=project_id, location=location, engine_id=engine_id)
-    if community is not None:
-        return community
+    The web-search tier (Option B, flag-gated by AI_ASSIST_WEB_SEARCH) is the broad
+    live fallback before giving up to uncited model knowledge; it needs no Search
+    engine, so it still runs when none is configured."""
+    if project_id and engine_id:
+        gov = _gov_answer(question, project_id=project_id, location=location, engine_id=engine_id)
+        if gov is not None:
+            return gov
+        community = _community_answer(question, project_id=project_id, location=location, engine_id=engine_id)
+        if community is not None:
+            return community
+    if _WEB_SEARCH_ENABLED:
+        web = _web_search_answer(question)
+        if web is not None:
+            return web
     return _ungrounded_answer(question)
 
 
