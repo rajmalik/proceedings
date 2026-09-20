@@ -82,6 +82,7 @@ jobs:
           python tests/test_assist_timeline.py
           python tests/test_assist_route.py
           python tests/test_assist_hardening.py
+          python tests/test_assist_routing_edges.py
 
   website:
     needs: changes
