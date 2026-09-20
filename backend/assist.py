@@ -25,6 +25,8 @@ import re
 from google import genai
 
 import posting  # shared genai_client() + _retry()
+import query  # generate_direct_answer (ungrounded fallback)
+import search_client  # answer_query (grounded retrieval)
 
 # Five-way taxonomy (§5.1). A tuple (not an Enum) so a future "ask-attorney" is a
 # prompt + branch change, no schema migration (Q6 — extensible enum).
@@ -201,3 +203,110 @@ def _trailing_clarify_streak(history) -> int:
         else:
             break
     return streak
+
+
+# ===========================================================================
+# Phase 3 — answer path (grounded cascade: gov -> community -> ungrounded)
+# ===========================================================================
+# Filter only on the indexed/filterable `doc_kind` field — NEVER `channel`
+# (unregistered facet -> 400). See search_client.answer_query.
+_GOV_FILTER = 'doc_kind: ANY("gov_news","official_reference")'
+_COMMUNITY_FILTER = '(NOT doc_kind: ANY("gov_news","official_reference"))'
+
+# Every ungrounded answer is prefixed with this label (B2/E1): the reader must
+# know it is not grounded in our sources and is not legal advice.
+_UNGROUNDED_LABEL = "**General information — not from our sources, not legal advice.**"
+
+
+def _answer_shape(answer: str, source_tier: str, *, citations=None,
+                  community_cards=None, is_fallback: bool = False) -> dict:
+    """The uniform answer dict every tier returns (also the keys api.py maps)."""
+    return {
+        "answer": answer,
+        "source_tier": source_tier,
+        "citations": citations or [],
+        "community_cards": community_cards or [],
+        "is_fallback": is_fallback,
+    }
+
+
+def _citations_from_chunks(chunks) -> list:
+    """Gov/official citations: source link + human title + as-of date (B3)."""
+    out = []
+    for c in chunks:
+        out.append({
+            "source": c.get("source", ""),
+            "title": str(c.get("text", ""))[:120],
+            "as_of": c.get("as_of", ""),
+        })
+    return out
+
+
+def _community_cards_from_chunks(chunks) -> list:
+    """Community post cards (Q9). Every card must link back to the original
+    posting: an external permalink when the chunk carries one, else the app's
+    own /case/{case_id} permalink."""
+    out = []
+    for c in chunks:
+        cid = c.get("chunk_id", "")
+        src = str(c.get("source", ""))
+        if src.startswith("http"):
+            url = src
+        elif cid:
+            url = f"/case/{cid}"
+        else:
+            url = ""
+        text = str(c.get("text", ""))
+        out.append({
+            "case_id": cid,
+            "title": text[:120],
+            "snippet": text[:300],
+            "url": url,
+            "channel": c.get("channel", ""),
+        })
+    return out
+
+
+def _gov_answer(question: str, *, project_id: str, location: str, engine_id: str):
+    """Grounded answer over gov/official docs. Returns the answer shape, or None
+    on a miss (is_fallback) so the cascade can fall through."""
+    res = search_client.answer_query(question, project_id, location, engine_id,
+                                     filter_expr=_GOV_FILTER)
+    if res.get("is_fallback"):
+        return None
+    return _answer_shape(res["answer"], "gov",
+                         citations=_citations_from_chunks(res["chunks"]))
+
+
+def _community_answer(question: str, *, project_id: str, location: str, engine_id: str):
+    """Grounded summary + linked cards over community postings. Returns the answer
+    shape, or None on a miss."""
+    res = search_client.answer_query(question, project_id, location, engine_id,
+                                     filter_expr=_COMMUNITY_FILTER)
+    if res.get("is_fallback"):
+        return None
+    return _answer_shape(res["answer"], "community",
+                         community_cards=_community_cards_from_chunks(res["chunks"]))
+
+
+def _ungrounded_answer(question: str) -> dict:
+    """Ungrounded Gemini answer, labelled as general information / not legal
+    advice (B2). Marked is_fallback since it is not grounded in our sources."""
+    body = query.generate_direct_answer(question)
+    return _answer_shape(f"{_UNGROUNDED_LABEL}\n\n{body}", "ungrounded", is_fallback=True)
+
+
+def answer_cascade(question: str, *, project_id: str, location: str, engine_id: str) -> dict:
+    """Resolve an answer gov-first, then community, then ungrounded (Q10). The
+    miss signal at each grounded tier is answer_query's is_fallback (Q3): a
+    genuinely experiential question naturally misses gov and falls to community.
+    With no Search engine configured, answer ungrounded directly."""
+    if not (project_id and engine_id):
+        return _ungrounded_answer(question)
+    gov = _gov_answer(question, project_id=project_id, location=location, engine_id=engine_id)
+    if gov is not None:
+        return gov
+    community = _community_answer(question, project_id=project_id, location=location, engine_id=engine_id)
+    if community is not None:
+        return community
+    return _ungrounded_answer(question)

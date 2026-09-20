@@ -142,6 +142,7 @@ def _reference_to_chunk(ref) -> dict | None:
             "labels": _labels_from(meta),
             "score": 0.0,  # structured refs carry no relevance score
             "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     # Chunked content (advanced/website mode).
     ci = ref.chunk_info
@@ -155,6 +156,7 @@ def _reference_to_chunk(ref) -> dict | None:
             "labels": _labels_from(meta),
             "score": float(ci.relevance_score or 0.0),
             "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     # Unstructured docs.
     udi = ref.unstructured_document_info
@@ -170,6 +172,7 @@ def _reference_to_chunk(ref) -> dict | None:
             "labels": _labels_from(meta),
             "score": 0.0,
             "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     return None
 
