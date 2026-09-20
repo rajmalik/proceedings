@@ -24,6 +24,7 @@ export type AssistResponse = {
   post_draft: PostDraftData | null
   timeline: Timeline | null
   find_url: string
+  search_suggestions_html: string
   disclaimer: string
   can_post: boolean
   can_find_timeline: boolean
@@ -176,6 +177,21 @@ export default function AiAssist() {
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* Web-search tier: a "live search" label + Google's Search-Suggestion
+            chips, which Google's grounding terms require the UI to render. */}
+        {d.source_tier === 'web' && (
+          <div className="space-y-1.5">
+            <p className="text-caption text-on-surface-variant">From a live search of official sources.</p>
+            {d.search_suggestions_html && (
+              <div
+                className="ai-search-suggestions overflow-x-auto"
+                data-testid="ai-search-suggestions"
+                dangerouslySetInnerHTML={{ __html: d.search_suggestions_html }}
+              />
+            )}
           </div>
         )}
 

@@ -17,7 +17,7 @@ function resp(over: Record<string, unknown> = {}) {
   return {
     intent: 'answer-gov', confidence: 0.9, answer: '', source_tier: '',
     citations: [], community_cards: [], clarify_questions: [],
-    post_draft: null, timeline: null, find_url: '', disclaimer: 'Not legal advice.',
+    post_draft: null, timeline: null, find_url: '', search_suggestions_html: '', disclaimer: 'Not legal advice.',
     can_post: true, can_find_timeline: false, can_find_similar: false, rationale: '', id: 'x', turns_used: 1,
     ...over,
   }
@@ -145,6 +145,24 @@ describe('AiAssist', () => {
     ask('how long is EAD taking?')
     const link = (await screen.findByText(/Open your timeline group/)).closest('a')
     expect(link).toHaveAttribute('href', '/groups/g-9')
+  })
+
+  it('web tier: shows the "live search" label + renders the Search-Suggestion chips', async () => {
+    fetchReturns({ data: resp({
+      answer: 'Naturalization takes about 8 months.', source_tier: 'web',
+      citations: [{ source: 'https://vertexaisearch.google/redirect/A', title: 'uscis.gov', as_of: '' }],
+      search_suggestions_html: '<div class="g-chips">Search on Google</div>',
+    }) })
+    render(<AiAssist />)
+    ask('how long is naturalization taking?')
+    expect(await screen.findByText('Naturalization takes about 8 months.')).toBeInTheDocument()
+    expect(screen.getByText(/live search of official sources/i)).toBeInTheDocument()
+    // the compliance chips (Google-provided HTML) are rendered
+    expect(screen.getByTestId('ai-search-suggestions').innerHTML).toContain('g-chips')
+    // citation link uses the redirect uri with the domain as label
+    expect(screen.getByText('uscis.gov').closest('a')).toHaveAttribute('href', 'https://vertexaisearch.google/redirect/A')
+    // web answers are grounded -> no "search further" buttons
+    expect(screen.queryByRole('button', { name: 'Search community forum' })).toBeNull()
   })
 
   it('offers community + USCIS search ONLY when the answer is ungrounded', async () => {
