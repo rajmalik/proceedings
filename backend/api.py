@@ -790,6 +790,7 @@ class AssistTimeline(BaseModel):
     group_id: str = ""
     group_name: str = ""
     criteria: dict = {}
+    find_url: str = ""          # /find Timeline-mode deep-link, prefilled from criteria
 
 
 class AssistResponse(BaseModel):

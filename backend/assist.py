@@ -551,26 +551,48 @@ def resolve_timeline_criteria(decision: dict) -> dict:
     }
 
 
+def _timeline_find_url(r: dict) -> str:
+    """A /find deep-link (Timeline mode) pre-filled with whatever timeline
+    criteria the router resolved — processing type, eligibility category, and
+    filing month/year. Partial is fine: the /find panel prefills whatever is
+    present and the user completes the rest. Mirrors _find_handoff for the
+    Regular case. Values are the vocab-validated ones from
+    resolve_timeline_criteria (processing_type = a PROCESSING_TYPES value,
+    eligibility = an eligibility-category tag)."""
+    from urllib.parse import urlencode
+
+    params = [("type", "timeline")]
+    for key in ("processing_type", "eligibility", "filing_month", "filing_year"):
+        val = (r.get(key) or "").strip()
+        if val:
+            params.append((key, val))
+    return "/find?" + urlencode(params)
+
+
 def _timeline_handoff(decision: dict, db) -> dict:
     """Route an EAD/H-1B timeline turn to a group (Q12). Uses the PUBLIC group
     search (no auth) to find the cohort; hands a /groups/{id} deep-link when one
     exists, else the would-be group name for the /find create tab. Insufficient
     criteria (Q13) -> 'unresolved' (send the user to /find generically). Returns
-    {status, group_id, group_name, criteria}."""
+    {status, group_id, group_name, criteria, find_url}. `find_url` is a
+    Timeline-mode /find deep-link pre-filled with the resolved criteria, so the
+    user lands on a filled-in panel rather than a blank one."""
     r = resolve_timeline_criteria(decision)
     criteria = r["criteria"]
+    find_url = _timeline_find_url(r)
     if not r["sufficient"]:
-        return {"status": "unresolved", "group_id": "", "group_name": "", "criteria": criteria}
+        return {"status": "unresolved", "group_id": "", "group_name": "",
+                "criteria": criteria, "find_url": find_url}
 
     groups = matching.search_groups(db, criteria, "timeline", "balanced", 0) if db is not None else []
     if groups:
         g = groups[0]
         return {"status": "found", "group_id": g.get("group_id", ""),
-                "group_name": g.get("name", ""), "criteria": criteria}
+                "group_name": g.get("name", ""), "criteria": criteria, "find_url": find_url}
 
     preview = matching.preview_timeline_group(criteria, "timeline")
     return {"status": "not_found", "group_id": "",
-            "group_name": preview.get("name", ""), "criteria": criteria}
+            "group_name": preview.get("name", ""), "criteria": criteria, "find_url": find_url}
 
 
 # ===========================================================================

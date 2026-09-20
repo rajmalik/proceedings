@@ -12,7 +12,7 @@ import { ASSIST_OPEN_EVENT } from '@/lib/assistLauncher'
 type Citation = { source: string; title: string; as_of: string }
 type CommunityCard = { case_id: string; title: string; snippet: string; url: string; channel: string }
 type PostDraftData = { title: string; description: string; groups: Groups; key_stages_or_info: KV; key_dates: KV }
-type Timeline = { status: string; group_id: string; group_name: string; criteria: unknown }
+type Timeline = { status: string; group_id: string; group_name: string; criteria: unknown; find_url: string }
 
 export type AssistResponse = {
   intent: string
@@ -222,7 +222,7 @@ export default function AiAssist() {
                     ? <>No “{d.timeline.group_name}” cohort yet.</>
                     : <>Tell me your process, category and filing month to find your cohort.</>}
                 </p>
-                <Link href="/find" className="inline-block btn-primary rounded-full text-caption">Go to the timeline page →</Link>
+                <Link href={d.timeline.find_url || '/find'} className="inline-block btn-primary rounded-full text-caption">Go to the timeline page →</Link>
               </>
             )}
           </div>

@@ -186,9 +186,29 @@ def group_b() -> None:
     check("B3b unresolved skips search", calls["search"] == 0)
     check("B3c unresolved has no group_id", h["group_id"] == "")
 
-    # every handoff carries the resolved criteria + a status.
-    check("B4 handoff always has criteria + status",
-          {"status", "group_id", "group_name", "criteria"} <= set(h.keys()))
+    # every handoff carries the resolved criteria + a status + a /find deep-link.
+    check("B4 handoff always has criteria + status + find_url",
+          {"status", "group_id", "group_name", "criteria", "find_url"} <= set(h.keys()))
+
+    # find_url is a Timeline-mode /find deep-link, prefilled with whatever was
+    # resolved. Sufficient criteria -> all four params.
+    (os_, op_), _ = _install([])
+    try:
+        h = assist._timeline_handoff(_SUFFICIENT, db=object())
+    finally:
+        matching.search_groups, matching.preview_timeline_group = os_, op_
+    u = h["find_url"]
+    check("B5 find_url is a timeline /find deep-link", u.startswith("/find?type=timeline"), u)
+    check("B5b find_url carries processing_type", "processing_type=EAD" in u, u)
+    check("B5c find_url carries eligibility", "eligibility=stem-opt-extension" in u, u)
+    check("B5d find_url carries filing month + year",
+          "filing_month=Aug" in u and "filing_year=2026" in u, u)
+
+    # Partial (unresolved) -> only the params that resolved; no blank keys.
+    partial = assist._timeline_find_url(assist.resolve_timeline_criteria(_dec(timeline_processing_type="EAD")))
+    check("B6 partial find_url keeps processing_type only",
+          partial == "/find?type=timeline&processing_type=EAD", partial)
+    check("B6b no empty eligibility/month/year params", "eligibility=" not in partial and "filing_" not in partial, partial)
 
 
 def main() -> None:
