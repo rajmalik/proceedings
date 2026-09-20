@@ -134,9 +134,9 @@ def _structured_ref(struct: dict):
                            unstructured_document_info=None)
 
 
-def _chunk_ref(struct: dict):
+def _chunk_ref(struct: dict, uri: str = "https://example.gov/chunk"):
     dm = SimpleNamespace(struct_data=struct, document="projects/x/.../documents/case-456",
-                         uri="https://example.gov/chunk", title="CT")
+                         uri=uri, title="CT")
     ci = SimpleNamespace(content="some chunk content", chunk="", document_metadata=dm,
                          relevance_score=0.7)
     return SimpleNamespace(structured_document_info=None, chunk_info=ci,
@@ -168,6 +168,13 @@ def group_c() -> None:
     none_date = r2c(_structured_ref({"post_title": "no date"}))
     check("C4 missing posting_date -> as_of == ''", none_date.get("as_of") == "", str(none_date))
     check("C4b as_of key always present", "as_of" in none_date)
+
+    # C5/C6: a chunk whose document_metadata.uri is a gs:// sidecar path must cite
+    # the doc's real full_url (usable link), never the gs:// path.
+    gsv = r2c(_chunk_ref({"full_url": "https://www.uscis.gov/ar-11"}, uri="gs://bucket/official/uscis/x.md"))
+    check("C5 chunk_info prefers full_url over gs://", gsv.get("source") == "https://www.uscis.gov/ar-11")
+    gsn = r2c(_chunk_ref({}, uri="gs://bucket/official/uscis/x.md"))
+    check("C6 chunk_info never emits a gs:// source", not str(gsn.get("source", "")).startswith("gs://"))
 
 
 # ---------------------------------------------------------------------------

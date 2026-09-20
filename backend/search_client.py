@@ -149,10 +149,16 @@ def _reference_to_chunk(ref) -> dict | None:
     if ci and (ci.content or ci.chunk):
         dm = ci.document_metadata
         meta = _struct_to_dict(getattr(dm, "struct_data", {})) if dm else {}
+        cid = (getattr(dm, "document", "") or ci.chunk or "").split("/")[-1]
+        # Prefer the doc's real URL over the internal gs:// sidecar path so the
+        # citation is a usable link (official_reference/gov docs carry full_url).
+        uri = str(meta.get("full_url") or meta.get("source_uri") or getattr(dm, "uri", "") or "")
+        source = uri if (uri and not uri.startswith("gs://")) else \
+            str(meta.get("post_title") or getattr(dm, "title", "") or cid)
         return {
-            "chunk_id": (getattr(dm, "document", "") or ci.chunk or "").split("/")[-1],
+            "chunk_id": cid,
             "text": str(ci.content or "")[:500],
-            "source": str(getattr(dm, "uri", "") or getattr(dm, "title", "") or meta.get("post_title", "")),
+            "source": source,
             "labels": _labels_from(meta),
             "score": float(ci.relevance_score or 0.0),
             "as_of": str(meta.get("posting_date") or ""),
