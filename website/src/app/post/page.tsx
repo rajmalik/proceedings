@@ -4,8 +4,10 @@ import { Suspense,useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { getActiveUser, userHeaders } from '@/lib/activeUser'
 import { useRequireUser } from '@/lib/useRequireUser'
+import { readAndClearPostDraft } from '@/lib/assistDraft'
+import { mergeReconcile } from '@/lib/postReconcile'
 
-type Conflict = { field: string; profile_value: unknown; message_value: unknown }
+type Conflict = { field: string; profile_value?: unknown; message_value: unknown; message?: string }
 
 type Groups = {
   visa_applying_for: string[]
@@ -107,6 +109,51 @@ function PostPageInner() {
   const hasOnlyGenericVisa = !hasVisa && (groups.visa_applying_for.length > 0 || groups.current_visa_or_greencard_category.length > 0)
   const visibleSections = SECTIONS.filter((s) => ALWAYS.includes(s.field) || relevant.includes(s.field))
 
+  // Reconcile the message groups against the saved profile (best-effort, only
+  // with an active user) and apply the result to the composer. Shared by
+  // preview() (tag-suggest path) and the AI-Assist draft mount effect so both
+  // run the SAME profile-reconcile step (D1/D3).
+  async function applyTagResult(g: Groups, st: KV, dt: KV) {
+    let applied = false
+    if (getActiveUser()) {
+      try {
+        const rr = await fetch('/api/reconcile', {
+          method: 'POST', headers: userHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ message: { ...g, key_stages_or_info: st, key_dates: dt } }),
+        })
+        if (rr.ok) {
+          const a = mergeReconcile(g, st, dt, await rr.json())
+          setGroups(a.groups); setStages(a.stages); setDates(a.dates)
+          setConflicts(a.conflicts); setExplainer(a.explainer); setPrefilled(a.prefilled)
+          applied = true
+        }
+      } catch { /* no active user / reconcile unavailable — post without it */ }
+    }
+    if (!applied) { setGroups(g); setStages(st); setDates(dt) }
+    setPreviewed(true)
+  }
+
+  // AI-Assist hand-off: if a draft was stashed by the assistant, pre-fill /post
+  // from it once, run it through the same reconcile step, then clear it
+  // (read-once). No draft -> normal empty composer. (Q11/C2, D1/D3)
+  useEffect(() => {
+    const draft = readAndClearPostDraft()
+    if (!draft) return
+    setTitle(draft.title)
+    setDescription(draft.description)
+    setPostingType(''); setConflicts([]); setExplainer(''); setPrefilled([]); setProfileUpdated(false)
+    const g: Groups = { ...EMPTY, ...(draft.groups || {}) }
+    const st: KV = draft.key_stages_or_info || {}
+    const dt: KV = draft.key_dates || {}
+    // The draft carries no relevant_sections — reveal any section with drafted data.
+    setRelevant(SECTIONS.map((s) => s.field).filter((f) => {
+      const v = g[f]
+      return Array.isArray(v) ? v.length > 0 : Boolean(v)
+    }) as string[])
+    void applyTagResult(g, st, dt)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function preview() {
     if (!canPreview) return
     setPreviewing(true); setError('')
@@ -123,35 +170,7 @@ function PostPageInner() {
       setRelevant(Array.isArray(data.relevant_sections) ? data.relevant_sections : [])
       setPostingType(data.posting_type || '')
       setConflicts([]); setExplainer(''); setPrefilled([]); setProfileUpdated(false)
-
-      // Reconcile against the saved profile (best-effort; only with an active user).
-      let applied = false
-      if (getActiveUser()) {
-        try {
-          const rr = await fetch('/api/reconcile', {
-            method: 'POST', headers: userHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ message: { ...g, key_stages_or_info: st, key_dates: dt } }),
-          })
-          if (rr.ok) {
-            const rd = await rr.json()
-            const m = rd.merged || {}
-            setGroups({
-              ...EMPTY,
-              current_visa_or_greencard_category: m.current_visa_or_greencard_category ?? g.current_visa_or_greencard_category,
-              visa_applying_for: m.visa_applying_for ?? g.visa_applying_for,
-              primary_consulate: m.primary_consulate ?? g.primary_consulate,
-              consulates: m.consulates ?? g.consulates,
-              tags: g.tags, concerns_or_questions_tags: g.concerns_or_questions_tags,
-            })
-            setStages(m.key_stages_or_info ?? st)
-            setDates(m.key_dates ?? dt)
-            setConflicts(rd.conflicts || []); setExplainer(rd.explainer || ''); setPrefilled(rd.prefilled || [])
-            applied = true
-          }
-        } catch { /* no active user / reconcile unavailable — post without it */ }
-      }
-      if (!applied) { setGroups(g); setStages(st); setDates(dt) }
-      setPreviewed(true)
+      await applyTagResult(g, st, dt)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not analyze the posting')
     } finally {

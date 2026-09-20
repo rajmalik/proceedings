@@ -310,3 +310,32 @@ def answer_cascade(question: str, *, project_id: str, location: str, engine_id: 
     if community is not None:
         return community
     return _ungrounded_answer(question)
+
+
+# ===========================================================================
+# Phase 4 — post handoff (chat -> the /post composer draft)
+# ===========================================================================
+
+def _post_draft(decision: dict, message: str) -> dict:
+    """Build the /post pre-fill draft from a router decision.
+
+    C3: PII is scrubbed BEFORE Gemini (suggest_tags calls Gemini) AND the
+    returned draft fields are already scrubbed (so nothing unscrubbed reaches the
+    /post composer). Falls back to the (scrubbed) raw message when the router
+    didn't produce a title/summary. Returns the shape /post pre-fills from
+    (title, description, groups, key_stages_or_info, key_dates)."""
+    from profile import scrub_pii  # local import to avoid a posting<->profile cycle
+
+    title = scrub_pii((decision.get("post_title") or "").strip())
+    summary = scrub_pii((decision.get("post_summary") or "").strip() or (message or "").strip())
+    if not title:
+        title = summary[:80]
+
+    tags = posting.suggest_tags(title or summary[:80], summary)
+    return {
+        "title": title,
+        "description": summary,
+        "groups": tags.get("groups", {}),
+        "key_stages_or_info": tags.get("key_stages_or_info", {}),
+        "key_dates": tags.get("key_dates", {}),
+    }
