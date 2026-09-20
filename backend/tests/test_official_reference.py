@@ -145,6 +145,36 @@ def run_unit_driver() -> None:
         orp.requests.get = orig_get
 
 
+def run_unit_config() -> None:
+    print("\nUnit H — official_reference_poll.load_sources (configurable registry)")
+    import json
+    import tempfile
+    import official_reference_poll as orp
+
+    # the shipped default config loads the known sources
+    default = orp.load_sources()
+    check("H1 default config loads sources", len(default) >= 2)
+    check("H2 config has ICE SEVIS", any(s["url"] == "https://www.ice.gov/sevis" for s in default))
+
+    # a custom config file is honored (add/remove without code change)
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump({"version": 1, "sources": [
+            {"url": "https://www.uscis.gov/ar-11", "source_system": "uscis", "title": "AR-11", "author": "USCIS"}]}, f)
+        custom_path = f.name
+    got = orp.load_sources(custom_path)
+    check("H3 custom config honored", len(got) == 1 and got[0]["url"] == "https://www.uscis.gov/ar-11")
+
+    # invalid entries are dropped; a config with none falls back to the default
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump({"sources": [{"title": "no url"}, {"url": "x"}]}, f)  # both invalid
+        bad_path = f.name
+    check("H4 no-valid-entries -> built-in default", orp.load_sources(bad_path) == orp._DEFAULT_SOURCES)
+
+    # missing file -> default (never crashes the poll)
+    check("H5 missing file -> built-in default",
+          orp.load_sources("/nonexistent/official_reference_sources.json") == orp._DEFAULT_SOURCES)
+
+
 def run_unit_poll() -> None:
     print("\nUnit G — official_reference_poll.poll_all")
     import official_reference_poll as orp
@@ -270,6 +300,7 @@ def main() -> None:
         run_unit_driver()
         run_unit_dedup()
         run_unit_poll()
+        run_unit_config()
     if scope in ("integration", "all"):
         run_integration()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")

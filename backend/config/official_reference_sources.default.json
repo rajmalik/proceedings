@@ -1,0 +1,18 @@
+{
+  "_comment": "Authoritative US-gov reference pages ingested into DS-1 as doc_kind=official_reference. Add/remove entries here (no code change) — each MUST be public-domain US-gov, immigration-relevant, and reasonably static. New sites should be fetchability-verified first (see docs/ingestion/USCIS-FORMS-INGESTION-PLAN.md); the poll skips a source that fails to fetch rather than failing the run. `source_system` must be a stable slug (it keys the doc id together with the URL).",
+  "version": 1,
+  "sources": [
+    {
+      "url": "https://www.ice.gov/sevis",
+      "title": "Student and Exchange Visitor Program (SEVP) / SEVIS",
+      "source_system": "ice",
+      "author": "ICE SEVP"
+    },
+    {
+      "url": "https://studyinthestates.dhs.gov/students",
+      "title": "Study in the States — Students (F/M)",
+      "source_system": "study-in-the-states",
+      "author": "DHS Study in the States"
+    }
+  ]
+}

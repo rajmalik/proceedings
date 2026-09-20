@@ -12,14 +12,25 @@ Triggered by Cloud Scheduler → POST /internal/official-reference/poll (api.py)
 gated by _require_internal(). One source failing is logged and skipped, never
 fatal to the run.
 """
+import json
+import os
+from pathlib import Path
+
 import requests
 from bs4 import BeautifulSoup
 
-# Registry of authoritative reference pages to keep grounded. Kept in code (a
-# small, slowly-changing, trust-sensitive set) rather than the Firestore
-# news_sources registry, which is scoped to RSS *news*. All must be public-domain
-# US-gov reference relevant to immigration.
-SOURCES = [
+# Registry of authoritative reference pages to keep grounded — now CONFIGURABLE
+# via config/official_reference_sources.default.json (add/remove sources there,
+# no code change). Still version-controlled (a trust-sensitive, slowly-changing
+# set) rather than the Firestore news_sources registry, which is scoped to RSS
+# *news*. Override the path with OFFICIAL_REFERENCE_SOURCES_PATH. The built-in
+# default below is the safety net if the file is missing/unreadable.
+_CONFIG_PATH = os.getenv(
+    "OFFICIAL_REFERENCE_SOURCES_PATH",
+    str(Path(__file__).resolve().parent / "config" / "official_reference_sources.default.json"),
+)
+
+_DEFAULT_SOURCES = [
     {
         "url": "https://www.ice.gov/sevis",
         "title": "Student and Exchange Visitor Program (SEVP) / SEVIS",
@@ -33,6 +44,29 @@ SOURCES = [
         "author": "DHS Study in the States",
     },
 ]
+
+
+def load_sources(path: str = _CONFIG_PATH) -> list[dict]:
+    """Load the source registry from the JSON config. Only entries with a `url`
+    and a `source_system` are kept. Falls back to the built-in default if the
+    file is missing/unreadable/empty — the scheduled poll must never crash on a
+    bad config."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("sources") if isinstance(data, dict) else data
+        valid = [s for s in (raw or []) if s.get("url") and s.get("source_system")]
+        if valid:
+            return valid
+        print(f"official-reference: sources config {path} had no valid entries; using built-in default")
+    except FileNotFoundError:
+        print(f"official-reference: sources config {path} not found; using built-in default")
+    except Exception as e:  # noqa: BLE001 - never let a bad config crash the poll
+        print(f"official-reference: could not load sources config {path} ({type(e).__name__}: {e}); using built-in default")
+    return list(_DEFAULT_SOURCES)
+
+
+SOURCES = load_sources()
 
 _BODY_SELECTORS = ["main article", "article", "main", "#main-content", "#content", "body"]
 _MIN_WORDS = 50
