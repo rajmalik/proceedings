@@ -136,6 +136,25 @@ describe('AiAssist', () => {
     expect(link).toHaveAttribute('href', '/groups/g-9')
   })
 
+  it('offers community + USCIS search ONLY when the answer is ungrounded', async () => {
+    fetchReturns({ data: resp({ answer: 'General guidance about AR-11.', source_tier: 'ungrounded' }) })
+    render(<AiAssist />)
+    ask('what form for change of address?')
+    await screen.findByText('General guidance about AR-11.')
+    fireEvent.click(screen.getByRole('button', { name: 'Search community forum' }))
+    expect(push).toHaveBeenCalledWith(expect.stringContaining('/advanced-search?q='))
+    const uscis = screen.getByRole('link', { name: 'Search on USCIS.gov' })
+    expect(uscis.getAttribute('href')).toContain('uscis.gov')
+  })
+
+  it('hides the search-further buttons on a confident grounded answer', async () => {
+    fetchReturns({ data: resp({ answer: 'Grounded answer.', source_tier: 'gov' }) })
+    render(<AiAssist />)
+    ask('a grounded question')
+    await screen.findByText('Grounded answer.')
+    expect(screen.queryByRole('button', { name: 'Search community forum' })).toBeNull()
+  })
+
   it('shows a sign-in nudge on the 429 guest cap', async () => {
     fetchReturns({ ok: false, status: 429, data: { detail: 'guest limit' } })
     render(<AiAssist />)

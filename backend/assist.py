@@ -220,16 +220,25 @@ _UNGROUNDED_LABEL = "**General information — not from our sources, not legal a
 
 # Steers the managed Answer API away from verbose, over-inferred answers — the
 # root cause of the "wrong form" hallucination (it synthesized a long answer from
-# loosely-related gov_news instead of the specific form). Keeps grounded answers
-# short, form-first, and honest when the specific answer isn't in the sources.
+# loosely-related gov_news instead of the specific form). Grounded answers are
+# short and form-first; when the sources DON'T actually contain the answer the
+# model emits a sentinel so the cascade can fall through to the model-knowledge
+# tier instead of returning a confident non-answer.
+_DECLINE_SENTINEL = "NO_GROUNDED_ANSWER"
 _ANSWER_PREAMBLE = (
-    "You are a concise U.S. immigration assistant. Answer the question directly and briefly "
-    "(one or two short paragraphs at most). If the user asks which form to file, name the "
-    "specific USCIS form (title and number, e.g. Form AR-11) first. Use ONLY facts present in "
-    "the provided sources. If the sources do not contain the specific answer to THIS question, "
-    "say you don't have that specific information and suggest checking uscis.gov — do NOT infer "
-    "or generalize an answer from loosely related content."
+    "You are a concise U.S. immigration assistant. Use ONLY facts present in the provided sources. "
+    "If the sources DO contain the answer: reply directly and briefly (one or two short paragraphs); "
+    "if the user asks which form to file, name the specific USCIS form (title and number) first. "
+    "If the sources do NOT contain the specific answer to THIS question, reply with EXACTLY the token "
+    f"{_DECLINE_SENTINEL} and nothing else — do NOT guess or generalize from loosely related content."
 )
+
+
+def _is_decline(answer: str) -> bool:
+    """True when a grounded answer is really a non-answer (the sentinel, or empty)
+    — so the cascade treats it as a miss and falls through to the next tier."""
+    a = (answer or "").strip()
+    return (not a) or (_DECLINE_SENTINEL.lower() in a.lower())
 
 
 def _answer_shape(answer: str, source_tier: str, *, citations=None,
@@ -286,8 +295,8 @@ def _gov_answer(question: str, *, project_id: str, location: str, engine_id: str
     on a miss (is_fallback) so the cascade can fall through."""
     res = search_client.answer_query(question, project_id, location, engine_id,
                                      filter_expr=_GOV_FILTER, preamble=_ANSWER_PREAMBLE)
-    if res.get("is_fallback"):
-        return None
+    if res.get("is_fallback") or _is_decline(res.get("answer", "")):
+        return None  # no reference, or a sentinel decline -> fall through
     return _answer_shape(res["answer"], "gov",
                          citations=_citations_from_chunks(res["chunks"]))
 
@@ -297,8 +306,8 @@ def _community_answer(question: str, *, project_id: str, location: str, engine_i
     shape, or None on a miss."""
     res = search_client.answer_query(question, project_id, location, engine_id,
                                      filter_expr=_COMMUNITY_FILTER, preamble=_ANSWER_PREAMBLE)
-    if res.get("is_fallback"):
-        return None
+    if res.get("is_fallback") or _is_decline(res.get("answer", "")):
+        return None  # no reference, or a sentinel decline -> fall through
     return _answer_shape(res["answer"], "community",
                          community_cards=_community_cards_from_chunks(res["chunks"]))
 

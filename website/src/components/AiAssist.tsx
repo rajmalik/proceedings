@@ -31,7 +31,7 @@ export type AssistResponse = {
   turns_used: number
 }
 
-type Turn = { id: string; role: 'user' | 'ai'; content: string; data?: AssistResponse }
+type Turn = { id: string; role: 'user' | 'ai'; content: string; data?: AssistResponse; q?: string }
 
 let _seq = 0
 const _id = (p: string) => `${p}-${Date.now()}-${_seq++}`
@@ -107,7 +107,7 @@ export default function AiAssist() {
         return
       }
       const resp = data as AssistResponse
-      setTurns((t) => [...t, { id: _id('a'), role: 'ai', content: resp.answer || '', data: resp }])
+      setTurns((t) => [...t, { id: _id('a'), role: 'ai', content: resp.answer || '', data: resp, q: msg }])
       queueMicrotask(() => scrollRef.current?.scrollTo?.({ top: scrollRef.current.scrollHeight }))
       return resp
     } catch {
@@ -203,6 +203,30 @@ export default function AiAssist() {
             </>
           )}
         </div>
+
+        {/* Only when we couldn't answer from our grounded sources (Q2): offer the
+            two search paths — community postings, and the official USCIS site. */}
+        {d.source_tier === 'ungrounded' && (
+          <div className="pt-2 mt-1 border-t border-outline-variant">
+            <p className="text-caption text-on-surface-variant mb-1">Not from our sources — search further:</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => router.push(`/advanced-search?q=${encodeURIComponent(turn.q || '')}`)}
+                className="btn-secondary rounded-full text-caption"
+              >
+                Search community forum
+              </button>
+              <a
+                href={`https://www.uscis.gov/search?query=${encodeURIComponent(turn.q || '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary rounded-full text-caption"
+              >
+                Search on USCIS.gov
+              </a>
+            </div>
+          </div>
+        )}
       </div>
     )
   }

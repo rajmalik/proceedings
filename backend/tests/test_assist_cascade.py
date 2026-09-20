@@ -59,6 +59,12 @@ def _miss():
     return {"answer": search_client.FALLBACK_MESSAGE, "chunks": [], "is_fallback": True}
 
 
+def _decline():
+    """A grounded result whose answer is the sentinel decline (references present
+    but the specific answer isn't in them)."""
+    return {"answer": assist._DECLINE_SENTINEL, "chunks": [_chunk()], "is_fallback": False}
+
+
 def _install_fake_answer(script: dict, calls: list, preambles: list | None = None):
     """Fake search_client.answer_query dispatching on filter_expr; records calls
     (and preambles, if a list is given)."""
@@ -141,6 +147,19 @@ def group_b() -> None:
         search_client.answer_query = orig
     check("B6 gov answer passes a concise preamble",
           bool(preambles) and "concise" in preambles[0].lower() and "form" in preambles[0].lower())
+
+    # B7: a grounded DECLINE (sentinel) is treated as a miss so the cascade can
+    # fall through to the model-knowledge tier (item: answer AR-11-type questions).
+    check("B7 _is_decline sentinel", assist._is_decline(assist._DECLINE_SENTINEL) is True)
+    check("B7b _is_decline empty/whitespace", assist._is_decline("") is True and assist._is_decline("   ") is True)
+    check("B7c _is_decline real answer", assist._is_decline("File Form AR-11.") is False)
+    calls4 = []
+    orig = _install_fake_answer({assist._GOV_FILTER: _decline()}, calls4)
+    try:
+        r = assist._gov_answer("q", project_id="p", location="global", engine_id="e")
+    finally:
+        search_client.answer_query = orig
+    check("B8 grounded decline -> None (miss, so cascade continues)", r is None)
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +263,16 @@ def group_e() -> None:
 
         # E5 result always has the full answer shape.
         check("E5 cascade result has full answer schema", _ANSWER_KEYS <= set(d.keys()))
+
+        # E6 gov + community both DECLINE (sentinel) -> falls through to ungrounded.
+        calls = []
+        og = _install_fake_answer({assist._GOV_FILTER: _decline(), assist._COMMUNITY_FILTER: _decline()}, calls)
+        try:
+            d = assist.answer_cascade("which form?", project_id="p", location="global", engine_id="e")
+        finally:
+            search_client.answer_query = og
+        check("E6 grounded declines -> ungrounded (model knowledge)", d["source_tier"] == "ungrounded")
+        check("E6b both tiers tried before falling through", calls == [assist._GOV_FILTER, assist._COMMUNITY_FILTER])
     finally:
         query.generate_direct_answer = orig_gda
 
