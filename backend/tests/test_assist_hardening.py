@@ -8,8 +8,11 @@ Covers:
      kept; assessments are blanked.
   B  handle_turn — the returned rationale is run through _clean_rationale.
   C  _save_assist — analytics: route + source_tier + sources persisted (Q15).
-  D  anonymous-posting invariant — /api/postings stays anon-capable server-side
-     (uses _optional_user, never _active_user); the login gate is the /post page.
+  D  posting gate (source-level) — /api/postings requires a signed-in user with a
+     set-up profile (visa/status) for a personal-case post, and EXEMPTS a general
+     discussion/blog from that profile requirement.
+  E  posting gate (behavioral) — the same rule exercised through the API with the
+     GCP writes stubbed: empty-profile personal post -> 422; discussion/blog -> ok.
 
 Run:  python tests/test_assist_hardening.py
 Wired into the no-GCP CI gate.
@@ -170,6 +173,69 @@ def group_d() -> None:
     check("D2 /api/postings validates a non-empty profile (visa/status)",
           "current_visa_or_greencard_category" in src and "422" in src,
           "posting must reject an empty profile with a 422")
+    check("D3 discussion/blog postings are EXEMPT from the profile requirement",
+          "is_discussion" in src and '"discussion"' in src and '"blog"' in src
+          and "if not is_discussion:" in src,
+          "a general discussion/blog is not tied to the author's case → no profile gate")
+
+
+# ---------------------------------------------------------------------------
+# E — posting gate BEHAVIOR + discussion/blog exemption (offline)
+#     Driven through /api/postings with the GCP writes stubbed. TestClient is
+#     used WITHOUT its context manager on purpose, so the GCP-touching lifespan
+#     startup never runs — this stays in the no-GCP gate.
+# ---------------------------------------------------------------------------
+
+def group_e() -> None:
+    print("\nE — posting gate + discussion/blog exemption (behavioral)")
+    from fastapi.testclient import TestClient
+    import api
+    import posting
+    import profile
+
+    # Dev/test identity via X-User-Id, limiter lifted, GCP writes stubbed.
+    api.ALLOW_USER_IMPERSONATION = True
+    api.RATE_LIMIT_MAX = 10_000
+    orig_get_profile = profile.get_profile
+    orig_publish = posting.publish_posting
+    profile.get_profile = lambda db, uid: {}          # EMPTY author profile (no visa/status)
+    posting.publish_posting = lambda *a, **k: {         # never touch GCS / the datastore
+        "case_id": "app-e2e-test", "gcs_path": "gs://test/x",
+        "indexed": True, "author_handle": "anon-test",
+    }
+    hdr = {"X-User-Id": "demo-arjun"}                    # a baked seed id (accepted)
+    client = TestClient(api.app)                          # no `with` -> lifespan not run
+    try:
+        # A personal-case post from an empty-profile author is still gated (422).
+        normal = client.post("/api/postings", headers=hdr, json={
+            "title": "A personal H-1B question",
+            "description": "Details about my own case that I want help with.",
+            "tags": {"tags": ["general-inquiry"]},
+        })
+        check("E1 empty-profile personal post -> 422 (profile gate holds)",
+              normal.status_code == 422, f"status={normal.status_code}")
+
+        # A discussion is not tied to the author's case -> EXEMPT (publishes).
+        disc = client.post("/api/postings", headers=hdr, json={
+            "title": "How premium processing actually works",
+            "description": "A general explainer for everyone, not my own case.",
+            "tags": {"tags": ["discussion"]},
+        })
+        check("E2 empty-profile DISCUSSION post -> 200 (exempt from the profile gate)",
+              disc.status_code == 200 and disc.json().get("case_id") == "app-e2e-test",
+              f"status={disc.status_code} body={disc.json()}")
+
+        # blog is exempt on the same footing.
+        blog = client.post("/api/postings", headers=hdr, json={
+            "title": "How to respond to an RFE",
+            "description": "A generic step-by-step how-to guide.",
+            "tags": {"tags": ["blog"]},
+        })
+        check("E3 empty-profile BLOG post -> 200 (exempt)", blog.status_code == 200,
+              f"status={blog.status_code}")
+    finally:
+        profile.get_profile = orig_get_profile
+        posting.publish_posting = orig_publish
 
 
 def main() -> None:
@@ -178,6 +244,7 @@ def main() -> None:
     group_b()
     group_c()
     group_d()
+    group_e()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")
     sys.exit(1 if _failed else 0)
 

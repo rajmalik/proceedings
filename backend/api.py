@@ -1138,14 +1138,18 @@ def create_posting(body: PostingCreateRequest, request: Request):
     import posting
     import profile
 
-    # Posting requires a signed-in user whose profile is set up (a visa/status).
-    # Author is kept OUT of the posting itself / search datastore — only recorded
-    # in the Firestore posting↔author link below.
+    # Posting requires a signed-in user. A personal-case message additionally
+    # requires a set-up profile (a visa/status), but a general discussion/blog
+    # (tagged `discussion`/`blog`) is NOT tied to the author's own case, so it is
+    # exempt from that profile requirement. Author is kept OUT of the posting
+    # itself / search datastore — only recorded in the Firestore link below.
     author_uid = _active_user(request)
-    _prof = _guard(lambda: profile.get_profile(_db, author_uid))
-    if not (_prof.get("current_visa_or_greencard_category") or _prof.get("visa_applying_for")):
-        raise HTTPException(status_code=422,
-                            detail="Set up your profile (add your visa/status) before posting a message.")
+    is_discussion = bool({"discussion", "blog"} & set(body.tags.tags or []))
+    if not is_discussion:
+        _prof = _guard(lambda: profile.get_profile(_db, author_uid))
+        if not (_prof.get("current_visa_or_greencard_category") or _prof.get("visa_applying_for")):
+            raise HTTPException(status_code=422,
+                                detail="Set up your profile (add your visa/status) before posting a message.")
 
     try:
         result = _guard(lambda: posting.publish_posting(
