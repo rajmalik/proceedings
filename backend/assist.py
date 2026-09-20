@@ -354,6 +354,16 @@ def _strip_cite_markers(text: str) -> str:
     return _CITE_MARKER.sub("", text or "").strip()
 
 
+def _is_official_source(title: str) -> bool:
+    """A citation is authoritative only if its domain is a U.S. government one.
+    Google grounding puts the source domain in the chunk `title` (e.g. "uscis.gov",
+    "cilawgroup.com"); federal sites are all `.gov`, so we keep those and drop
+    commercial/law-firm results (the prompt's "official sources" is only a soft
+    preference — this enforces it)."""
+    t = (title or "").strip().lower().rstrip("/")
+    return t == "gov" or t.endswith(".gov")
+
+
 def _web_tool():
     """The Google-Search grounding tool (newer models want `google_search`; older
     ones `google_search_retrieval`)."""
@@ -394,6 +404,13 @@ def _web_search_answer(question: str):
             chips = getattr(sep, "rendered_content", "") if sep else ""
         except Exception:  # noqa: BLE001 - metadata is best-effort
             pass
+
+        # Enforce official-source grounding: keep only .gov citations. If none
+        # remain, the answer wasn't grounded on authoritative sources — treat as a
+        # miss and fall through to the labelled ungrounded tier.
+        citations = [c for c in citations if _is_official_source(c.get("title", ""))]
+        if not citations:
+            return None
 
         return _answer_shape(answer, "web", citations=citations, is_fallback=False,
                              search_suggestions_html=chips)

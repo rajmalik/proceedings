@@ -96,17 +96,24 @@ def group_a() -> None:
 # ---------------------------------------------------------------------------
 
 def group_b() -> None:
-    print("\nB — _web_search_answer happy path")
+    print("\nB — _web_search_answer happy path (+ gov-only citation filter)")
     r = _call(_resp(
         "You must be an LPR for 5 years [cite: 1, 2] to naturalize.",
         chunks=[_web("https://vertexaisearch.cloud.google.com/redirect/A", "uscis.gov"),
-                _web("https://vertexaisearch.cloud.google.com/redirect/B", "dhs.gov")],
+                _web("https://vertexaisearch.cloud.google.com/redirect/B", "travel.state.gov"),
+                _web("https://vertexaisearch.cloud.google.com/redirect/C", "cilawgroup.com"),
+                _web("https://vertexaisearch.cloud.google.com/redirect/D", "boundless.com")],
         chips="<div class='chips'>Suggestions</div>",
     ))
     check("B1 source_tier == web", r["source_tier"] == "web")
     check("B2 not fallback", r["is_fallback"] is False)
     check("B3 [cite] stripped from answer", "[cite" not in r["answer"] and "naturalize." in r["answer"])
-    check("B4 two citations mapped", len(r["citations"]) == 2)
+    check("B4 non-gov citations dropped (uscis.gov + travel.state.gov kept)", len(r["citations"]) == 2)
+    check("B4b only .gov domains remain",
+          all(assist._is_official_source(c["title"]) for c in r["citations"]),
+          str([c["title"] for c in r["citations"]]))
+    check("B4c cilawgroup/boundless not present",
+          not any(c["title"] in ("cilawgroup.com", "boundless.com") for c in r["citations"]))
     check("B5 citation keeps redirect uri + domain title",
           r["citations"][0]["source"].startswith("https://") and r["citations"][0]["title"] == "uscis.gov")
     check("B6 search-suggestion chips captured", r["search_suggestions_html"] == "<div class='chips'>Suggestions</div>")
@@ -118,9 +125,16 @@ def group_b() -> None:
 # ---------------------------------------------------------------------------
 
 def group_c() -> None:
-    print("\nC — empty answer -> None (cascade falls through)")
+    print("\nC — miss -> None (cascade falls through)")
     check("C1 empty text -> None", _call(_resp("")) is None)
     check("C2 only-markers text -> None", _call(_resp("[cite: 1]")) is None)
+    # non-gov-only citations -> not officially grounded -> None
+    non_gov = _call(_resp("An answer.", chunks=[_web("https://r/x", "cilawgroup.com"), _web("https://r/y", "boundless.com")]))
+    check("C3 only non-gov sources -> None (not officially grounded)", non_gov is None)
+    # _is_official_source unit
+    s = assist._is_official_source
+    check("C4 .gov domains are official", s("uscis.gov") and s("travel.state.gov") and s("dhs.gov"))
+    check("C5 commercial/law-firm not official", not s("cilawgroup.com") and not s("boundless.com") and not s(""))
 
 
 # ---------------------------------------------------------------------------
@@ -130,15 +144,14 @@ def group_c() -> None:
 def group_d() -> None:
     print("\nD — robustness")
     check("D1 model exception -> None", _call(raise_exc=RuntimeError("grounding down")) is None)
-    # no grounding metadata -> still returns the answer, no citations/chips
-    r = _call(_resp("A grounded answer.", with_meta=False))
-    check("D2 no metadata -> answer kept, citations empty", r is not None and r["citations"] == [] and r["search_suggestions_html"] == "")
-    # empty candidates -> inner metadata read fails gracefully
-    r2 = _call(_resp("Answer without candidates.", candidates=False))
-    check("D3 no candidates -> answer kept, no citations", r2 is not None and r2["citations"] == [])
-    # a chunk without a web uri is skipped
+    # no grounding metadata -> no citations -> not officially grounded -> None
+    check("D2 no metadata -> None (no official citations)", _call(_resp("A grounded answer.", with_meta=False)) is None)
+    # empty candidates -> metadata read fails gracefully -> None
+    check("D3 no candidates -> None", _call(_resp("Answer without candidates.", candidates=False)) is None)
+    # a chunk without a web uri is skipped; the remaining .gov chunk is kept
     r3 = _call(_resp("Answer.", chunks=[SimpleNamespace(web=None), _web("https://x/redirect/C", "uscis.gov")]))
-    check("D4 chunk without web uri skipped", len(r3["citations"]) == 1 and r3["citations"][0]["title"] == "uscis.gov")
+    check("D4 chunk without web uri skipped; gov chunk kept",
+          r3 is not None and len(r3["citations"]) == 1 and r3["citations"][0]["title"] == "uscis.gov")
 
 
 # ---------------------------------------------------------------------------
