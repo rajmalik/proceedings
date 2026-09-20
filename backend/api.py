@@ -802,9 +802,11 @@ class AssistResponse(BaseModel):
     clarify_questions: list[str] = []
     post_draft: AssistPostDraft | None = None
     timeline: AssistTimeline | None = None
+    find_url: str = ""
     disclaimer: str = ""
     can_post: bool = True
     can_find_timeline: bool = False
+    can_find_similar: bool = False
     rationale: str = ""
     id: str = ""
     turns_used: int = 0
@@ -1133,10 +1135,16 @@ def create_posting(body: PostingCreateRequest, request: Request):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
 
     import posting
+    import profile
 
-    # Author (the publishing app user). Kept OUT of the posting itself / search
-    # datastore — only recorded in the Firestore posting↔author link below.
-    author_uid = _optional_user(request)
+    # Posting requires a signed-in user whose profile is set up (a visa/status).
+    # Author is kept OUT of the posting itself / search datastore — only recorded
+    # in the Firestore posting↔author link below.
+    author_uid = _active_user(request)
+    _prof = _guard(lambda: profile.get_profile(_db, author_uid))
+    if not (_prof.get("current_visa_or_greencard_category") or _prof.get("visa_applying_for")):
+        raise HTTPException(status_code=422,
+                            detail="Set up your profile (add your visa/status) before posting a message.")
 
     try:
         result = _guard(lambda: posting.publish_posting(

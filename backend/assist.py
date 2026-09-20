@@ -31,7 +31,7 @@ import matching  # timeline group search + preview (Phase 5)
 
 # Five-way taxonomy (§5.1). A tuple (not an Enum) so a future "ask-attorney" is a
 # prompt + branch change, no schema migration (Q6 — extensible enum).
-INTENTS = ("answer-gov", "answer-community", "post", "timeline-find", "clarify")
+INTENTS = ("answer-gov", "answer-community", "post", "timeline-find", "find-similar", "clarify")
 
 # Probe result (2026-09-19, proceedings-490601/us-central1): only gemini-2.5-flash
 # and -flash-lite are GA here; Gemini-3 Flash 404s. Ship on 2.5-flash; the
@@ -63,6 +63,11 @@ route to the /post composer.
 it is taking, when it will be approved, current processing times). This PRE-EMPTS "post": these are \
 routed to the /find groups page so the user can find, join, or create the relevant timeline group \
 and post there.
+- "find-similar": the user wants to FIND OTHER PEOPLE in the same situation as them \
+(same visa/status, consulate, or stage) to connect with or compare notes — e.g. "anyone else on an \
+H-1B who filed at Mumbai?", "find people in my situation", "who else is in the same boat". This is \
+NOT a processing-time question (that is "timeline-find") and NOT their own message to post (that is \
+"post"): route them to the /find REGULAR groups page with the criteria pre-filled.
 - "clarify": there is not enough information to classify the turn or to act on it. Ask at most 3 \
 short, targeted questions. Prioritise establishing at least ONE of: the user's current immigration \
 status, their intended status, or the process / stage they are in. Never exceed 3 clarifying \
@@ -78,19 +83,21 @@ Field extraction:
 - For "post" turns, best-effort fill `post_title` and `post_summary`.
 - For "timeline-find" turns, best-effort fill `timeline_processing_type` (e.g. "EAD" or "H-1B"), \
 `timeline_eligibility`, `timeline_filing_month`, `timeline_filing_year`.
+- For "find-similar" turns, best-effort fill `find_visa` with the user's visa/status if stated \
+(e.g. "H-1B", "F-1").
 - For "clarify" turns, fill `clarify_questions` (an array of at most 3 short strings).
 
 Output ONLY a JSON object with EXACTLY these keys:
 {{"intent", "confidence" (a number 0..1), "rationale", "rewritten_question", "clarify_questions" (array), \
 "post_title", "post_summary", "timeline_processing_type", "timeline_eligibility", \
-"timeline_filing_month", "timeline_filing_year"}}
+"timeline_filing_month", "timeline_filing_year", "find_visa"}}
 """
 
 # String fields carried on every decision (besides intent/confidence/clarify_questions).
 _STR_FIELDS = (
     "rationale", "rewritten_question", "post_title", "post_summary",
     "timeline_processing_type", "timeline_eligibility",
-    "timeline_filing_month", "timeline_filing_year",
+    "timeline_filing_month", "timeline_filing_year", "find_visa",
 )
 
 
@@ -117,6 +124,7 @@ def _fallback_decision(message: str) -> dict:
         "timeline_eligibility": "",
         "timeline_filing_month": "",
         "timeline_filing_year": "",
+        "find_visa": "",
     }
 
 
@@ -467,6 +475,26 @@ def _timeline_handoff(decision: dict, db) -> dict:
 
 
 # ===========================================================================
+# find-similar -> /find (Regular groups: connect with others in the same boat)
+# ===========================================================================
+
+def _find_handoff(decision: dict) -> str:
+    """Build a /find deep-link (Regular mode) pre-filled with the user's situation
+    and, when stated + vocab-valid, their visa/status. The rest of the criteria
+    the user refines on the /find panel."""
+    from urllib.parse import urlencode
+
+    params = [("type", "regular")]
+    q = (decision.get("rewritten_question") or "").strip()
+    if q:
+        params.append(("q", q))
+    visa = (decision.get("find_visa") or "").strip()
+    if visa and visa in set(posting.vocab_lists().get("visa") or []):
+        params.append(("visa", visa))
+    return "/find?" + urlencode(params)
+
+
+# ===========================================================================
 # Phase 6 — orchestration (handle_turn)
 # ===========================================================================
 _DISCLAIMER = "This is general information about U.S. immigration, not legal advice."
@@ -549,9 +577,11 @@ def handle_turn(message: str, history=None, *, force_intent: str = "",
         "clarify_questions": [],
         "post_draft": None,
         "timeline": None,
+        "find_url": "",
         "disclaimer": disclaimer_for(""),
         "can_post": True,
         "can_find_timeline": (intent == "timeline-find") or _has_timeline_signal(decision),
+        "can_find_similar": intent == "find-similar",
         "rationale": _clean_rationale(decision.get("rationale", "")),
         "is_fallback": False,
     }
@@ -562,6 +592,8 @@ def handle_turn(message: str, history=None, *, force_intent: str = "",
         result["post_draft"] = _post_draft(decision, scrubbed_message)
     elif intent == "timeline-find":
         result["timeline"] = _timeline_handoff(decision, db)
+    elif intent == "find-similar":
+        result["find_url"] = _find_handoff(decision)
     else:  # answer-gov / answer-community (and the coerced default)
         q = decision.get("rewritten_question") or scrubbed_message
         ans = answer_cascade(q, project_id=project_id, location=location, engine_id=engine_id)

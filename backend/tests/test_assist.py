@@ -79,9 +79,9 @@ def _with_fake_client(text=None, raise_exc=None):
 
 def group_a() -> None:
     print("\nA — module surface")
-    check("A1 INTENTS = the 5-way taxonomy",
+    check("A1 INTENTS = the routing taxonomy",
           set(assist.INTENTS) == {"answer-gov", "answer-community", "post",
-                                  "timeline-find", "clarify"}, str(assist.INTENTS))
+                                  "timeline-find", "find-similar", "clarify"}, str(assist.INTENTS))
     check("A2 INTENTS is a tuple (extensible, not an Enum)", isinstance(assist.INTENTS, tuple))
 
     orig = os.environ.pop("GCP_GEMINI_ASSIST_MODEL", None)

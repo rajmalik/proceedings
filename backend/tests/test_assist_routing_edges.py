@@ -267,12 +267,25 @@ def group_c() -> None:
     check("C2 id-only -> /case/{id}", cards[0]["url"] == "/case/k1")
 
 
+def group_fs() -> None:
+    print("\nFS — _find_handoff (find-similar -> /find Regular)")
+    u = assist._find_handoff({"rewritten_question": "anyone else on H-1B at Mumbai?", "find_visa": "H-1B"})
+    check("FS1 type=regular", "type=regular" in u)
+    check("FS2 q carried", "q=" in u)
+    check("FS3 vocab-valid visa carried", "visa=H-1B" in u)
+    u2 = assist._find_handoff({"rewritten_question": "find people like me", "find_visa": "NOT-A-VISA"})
+    check("FS4 invalid visa dropped", "visa=" not in u2 and "type=regular" in u2)
+    u3 = assist._find_handoff({"rewritten_question": "", "find_visa": ""})
+    check("FS5 no q -> just type=regular", u3 == "/find?type=regular")
+
+
 def main() -> None:
     print("== test_assist_routing_edges ==")
     group_r()
     group_h()
     group_t()
     group_c()
+    group_fs()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")
     sys.exit(1 if _failed else 0)
 

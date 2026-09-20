@@ -93,8 +93,8 @@ class _Patch:
 
 
 _RESULT_KEYS = {"intent", "confidence", "answer", "source_tier", "citations", "community_cards",
-                "clarify_questions", "post_draft", "timeline", "disclaimer", "can_post",
-                "can_find_timeline", "rationale", "is_fallback"}
+                "clarify_questions", "post_draft", "timeline", "find_url", "disclaimer", "can_post",
+                "can_find_timeline", "can_find_similar", "rationale", "is_fallback"}
 
 
 def group_h() -> None:
@@ -118,6 +118,12 @@ def group_h() -> None:
         r = assist.handle_turn("q", [])
     check("H3 timeline-find -> timeline handoff", r["intent"] == "timeline-find" and r["timeline"]["group_id"] == "g1")
     check("H3b can_find_timeline true", r["can_find_timeline"] is True)
+
+    with _Patch(_decision("find-similar")):
+        r = assist.handle_turn("anyone else on H-1B at Mumbai?", [])
+    check("H3c find-similar -> /find regular deep-link",
+          r["intent"] == "find-similar" and r["can_find_similar"] is True
+          and r["find_url"].startswith("/find?type=regular"), r.get("find_url"))
 
     with _Patch(_decision("clarify", clarify_questions=["a", "b"])):
         r = assist.handle_turn("q", [])

@@ -159,16 +159,17 @@ def group_c() -> None:
 
 
 # ---------------------------------------------------------------------------
-# D — anonymous-posting invariant (the gate is the /post page, not the API)
+# D — posting validation: signed-in + non-empty profile (server-side)
 # ---------------------------------------------------------------------------
 
 def group_d() -> None:
-    print("\nD — anonymous-posting invariant")
+    print("\nD — posting requires sign-in + a non-empty profile")
     import api
     src = inspect.getsource(api.create_posting)
-    check("D1 /api/postings is anon-capable (uses _optional_user)", "_optional_user" in src)
-    check("D2 /api/postings is NOT server-gated (no _active_user)", "_active_user" not in src,
-          "posting must stay anon-reachable — the login gate lives in /post (useRequireUser)")
+    check("D1 /api/postings requires sign-in (_active_user, server-side)", "_active_user" in src)
+    check("D2 /api/postings validates a non-empty profile (visa/status)",
+          "current_visa_or_greencard_category" in src and "422" in src,
+          "posting must reject an empty profile with a 422")
 
 
 def main() -> None:

@@ -23,9 +23,11 @@ export type AssistResponse = {
   clarify_questions: string[]
   post_draft: PostDraftData | null
   timeline: Timeline | null
+  find_url: string
   disclaimer: string
   can_post: boolean
   can_find_timeline: boolean
+  can_find_similar: boolean
   rationale: string
   id: string
   turns_used: number
@@ -117,6 +119,11 @@ export default function AiAssist() {
     }
   }
 
+  function startNew() {
+    setTurns([]); setInput(''); setError(''); setNudge(false)
+    try { sessionStorage.removeItem(CONV_KEY) } catch { /* ignore */ }
+  }
+
   async function handlePost(turn: Turn) {
     let draft = turn.data?.post_draft || undefined
     if (!draft) {
@@ -173,19 +180,34 @@ export default function AiAssist() {
         )}
 
         {d.timeline && (
-          <div className="text-body-md bg-surface-container-high rounded-xl p-2.5">
+          <div className="text-body-md bg-surface-container-high rounded-xl p-2.5 space-y-1.5">
             {d.timeline.status === 'found' ? (
-              <Link href={`/groups/${encodeURIComponent(d.timeline.group_id)}`} className="text-primary font-medium hover:underline">
-                Join &amp; post in your group{d.timeline.group_name ? ` (${d.timeline.group_name})` : ''} →
-              </Link>
+              <>
+                <p className="text-caption text-on-surface-variant">Your processing-timeline cohort:</p>
+                <Link href={`/groups/${encodeURIComponent(d.timeline.group_id)}`} className="inline-block btn-primary rounded-full text-caption">
+                  Open your timeline group{d.timeline.group_name ? ` (${d.timeline.group_name})` : ''} →
+                </Link>
+              </>
             ) : (
-              <span>
-                {d.timeline.group_name
-                  ? <>No “{d.timeline.group_name}” cohort yet. </>
-                  : <>Tell me your process, category and filing month to find your cohort. </>}
-                <Link href="/find" className="text-primary font-medium hover:underline">Find or create your timeline group →</Link>
-              </span>
+              <>
+                <p className="text-caption text-on-surface-variant">
+                  {d.timeline.group_name
+                    ? <>No “{d.timeline.group_name}” cohort yet.</>
+                    : <>Tell me your process, category and filing month to find your cohort.</>}
+                </p>
+                <Link href="/find" className="inline-block btn-primary rounded-full text-caption">Go to the timeline page →</Link>
+              </>
             )}
+          </div>
+        )}
+
+        {/* find-similar: connect with others in the same boat (Regular groups). */}
+        {d.can_find_similar && d.find_url && (
+          <div className="text-body-md bg-surface-container-high rounded-xl p-2.5 space-y-1.5">
+            <p className="text-caption text-on-surface-variant">Find others in your situation:</p>
+            <button onClick={() => router.push(d.find_url)} className="btn-primary rounded-full text-caption">
+              Find people in the same boat →
+            </button>
           </div>
         )}
 
@@ -262,13 +284,23 @@ export default function AiAssist() {
           <span className="material-symbols-outlined text-primary">auto_awesome</span>
           <span className="text-label-md font-semibold text-primary">Ask / Post a Question</span>
         </div>
-        <button
-          onClick={() => setOpen(false)}
-          aria-label="Collapse"
-          className="p-1 rounded hover:bg-surface-container text-on-surface-variant"
-        >
-          <span className="material-symbols-outlined text-[20px]">close</span>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={startNew}
+            aria-label="New chat"
+            title="Start a new conversation"
+            className="p-1 rounded hover:bg-surface-container text-on-surface-variant"
+          >
+            <span className="material-symbols-outlined text-[20px]">add_comment</span>
+          </button>
+          <button
+            onClick={() => setOpen(false)}
+            aria-label="Collapse"
+            className="p-1 rounded hover:bg-surface-container text-on-surface-variant"
+          >
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
       </header>
 
       {/* Conversation log — capped so the writing area stays large; scrolls. */}

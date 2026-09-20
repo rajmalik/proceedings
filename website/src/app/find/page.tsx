@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { getActiveUser, setActiveUser, userHeaders, DEMO_PICKER_ENABLED } from '@/lib/activeUser'
 import { CHECKBOX_ON, type PostJoinRow } from '@/lib/postJoinAttributes'
 import { useRequireUser } from '@/lib/useRequireUser'
+import { useSearchParams } from 'next/navigation'
 
 // backend/posting.py's PROCESSING_TYPES. `eligibility_categories` empty means
 // that type has no second dropdown. Both a type and a category carry the
@@ -352,6 +353,20 @@ function FindPageInner() {
   function removeTag(field: TagField, code: string) {
     setTags((prev) => prev.filter((t) => !(t.field === field && t.code === code)))
   }
+
+  // Pre-fill from a deep-link — the AI Assist "Find people in the same boat"
+  // button hands off as /find?type=regular&q=<situation>&visa=<code>. Runs once.
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    if (!searchParams) return
+    const type = searchParams.get('type')
+    const q = searchParams.get('q')
+    const visa = searchParams.get('visa')
+    if (type === 'regular') { setTab('find'); setGroupType('regular') }
+    if (q) setDescription(q)
+    if (visa) addTag('current_visa_or_greencard_category', visa)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   // "Processing type" — a dedicated top-of-panel dropdown that both selects
   // which tag_attribute_templates entry drives the Cycle/Year fields below,

@@ -17,8 +17,8 @@ function resp(over: Record<string, unknown> = {}) {
   return {
     intent: 'answer-gov', confidence: 0.9, answer: '', source_tier: '',
     citations: [], community_cards: [], clarify_questions: [],
-    post_draft: null, timeline: null, disclaimer: 'Not legal advice.',
-    can_post: true, can_find_timeline: false, rationale: '', id: 'x', turns_used: 1,
+    post_draft: null, timeline: null, find_url: '', disclaimer: 'Not legal advice.',
+    can_post: true, can_find_timeline: false, can_find_similar: false, rationale: '', id: 'x', turns_used: 1,
     ...over,
   }
 }
@@ -125,6 +125,17 @@ describe('AiAssist', () => {
     expect(push).toHaveBeenCalledWith('/post')
   })
 
+  it('find-similar: routes to /find Regular via the deep-link button', async () => {
+    fetchReturns({ data: resp({
+      intent: 'find-similar', answer: '', can_find_similar: true,
+      find_url: '/find?type=regular&q=H-1B+Mumbai',
+    }) })
+    render(<AiAssist />)
+    ask('anyone else on H-1B who filed at Mumbai?')
+    fireEvent.click(await screen.findByRole('button', { name: /Find people in the same boat/i }))
+    expect(push).toHaveBeenCalledWith('/find?type=regular&q=H-1B+Mumbai')
+  })
+
   it('timeline found: links to the /groups/{id} cohort', async () => {
     fetchReturns({ data: resp({
       intent: 'timeline-find', answer: '', can_find_timeline: true,
@@ -132,7 +143,7 @@ describe('AiAssist', () => {
     }) })
     render(<AiAssist />)
     ask('how long is EAD taking?')
-    const link = (await screen.findByText(/Join & post in your group/)).closest('a')
+    const link = (await screen.findByText(/Open your timeline group/)).closest('a')
     expect(link).toHaveAttribute('href', '/groups/g-9')
   })
 
@@ -153,6 +164,16 @@ describe('AiAssist', () => {
     ask('a grounded question')
     await screen.findByText('Grounded answer.')
     expect(screen.queryByRole('button', { name: 'Search community forum' })).toBeNull()
+  })
+
+  it('clears the conversation with "New chat"', async () => {
+    fetchReturns({ data: resp({ answer: 'Answer that should be cleared.' }) })
+    render(<AiAssist />)
+    ask('hello')
+    await screen.findByText('Answer that should be cleared.')
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    expect(screen.queryByText('Answer that should be cleared.')).toBeNull()
+    expect(screen.getByLabelText('Ask or post a question')).toBeInTheDocument()  // still open, fresh
   })
 
   it('shows a sign-in nudge on the 429 guest cap', async () => {
