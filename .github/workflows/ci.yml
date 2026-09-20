@@ -80,6 +80,7 @@ jobs:
           python tests/test_assist_cascade.py
           python tests/test_assist_post.py
           python tests/test_assist_timeline.py
+          python tests/test_assist_route.py
 
   website:
     needs: changes

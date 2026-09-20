@@ -442,3 +442,94 @@ def _timeline_handoff(decision: dict, db) -> dict:
     preview = matching.preview_timeline_group(criteria, "timeline")
     return {"status": "not_found", "group_id": "",
             "group_name": preview.get("name", ""), "criteria": criteria}
+
+
+# ===========================================================================
+# Phase 6 — orchestration (handle_turn)
+# ===========================================================================
+_DISCLAIMER = "This is general information about U.S. immigration, not legal advice."
+
+_MAX_CLARIFY = 3  # after this many clarify rounds, stop clarifying (Q17)
+
+
+def disclaimer_for(source_tier: str = "") -> str:
+    """The inline per-answer disclaimer (E1). One line today; kept a function so
+    a per-tier variant (e.g. a stronger note on the ungrounded tier) is a
+    one-place change later."""
+    return _DISCLAIMER
+
+
+def _scrub(text: str) -> str:
+    from profile import scrub_pii  # local import to avoid a posting<->profile cycle
+    return scrub_pii(text or "")
+
+
+def _scrub_history(history) -> list:
+    out = []
+    for t in history:
+        out.append({
+            "role": _turn_field(t, "role") or "user",
+            "content": _scrub(_turn_field(t, "content") or ""),
+            "intent": _turn_field(t, "intent") or "",
+        })
+    return out
+
+
+def _has_timeline_signal(decision: dict) -> bool:
+    valid = {t["value"] for t in posting.PROCESSING_TYPES}
+    return (decision.get("timeline_processing_type") or "").strip() in valid
+
+
+def handle_turn(message: str, history=None, *, force_intent: str = "",
+                project_id: str = "", location: str = "global", engine_id: str = "",
+                db=None) -> dict:
+    """Route one turn and produce the full AssistResponse-shaped dict.
+
+    PII is scrubbed before the turn ever reaches Gemini (C3). `force_intent`
+    (A5 override: "post" / "timeline-find") wins over the router. After
+    _MAX_CLARIFY clarify rounds the turn defaults to the labelled answer path
+    instead of clarifying again (Q17). Every result carries the disclaimer (E1)
+    and the "post" affordance; the "find your group" affordance shows whenever
+    the turn carried an EAD/H-1B signal (Q16)."""
+    history = history or []
+    scrubbed_message = _scrub(message)  # C3 — before Gemini
+    decision = route_turn(scrubbed_message, _scrub_history(history))
+
+    intent = force_intent if force_intent in INTENTS else decision["intent"]
+    if intent == "clarify" and _trailing_clarify_streak(history) >= _MAX_CLARIFY:
+        intent = "answer-gov"  # cascade -> ungrounded if nothing grounds
+
+    result = {
+        "intent": intent,
+        "confidence": decision.get("confidence", 0.0),
+        "answer": "",
+        "source_tier": "",
+        "citations": [],
+        "community_cards": [],
+        "clarify_questions": [],
+        "post_draft": None,
+        "timeline": None,
+        "disclaimer": disclaimer_for(""),
+        "can_post": True,
+        "can_find_timeline": (intent == "timeline-find") or _has_timeline_signal(decision),
+        "rationale": decision.get("rationale", ""),
+        "is_fallback": False,
+    }
+
+    if intent == "clarify":
+        result["clarify_questions"] = decision.get("clarify_questions", [])
+    elif intent == "post":
+        result["post_draft"] = _post_draft(decision, scrubbed_message)
+    elif intent == "timeline-find":
+        result["timeline"] = _timeline_handoff(decision, db)
+    else:  # answer-gov / answer-community (and the coerced default)
+        q = decision.get("rewritten_question") or scrubbed_message
+        ans = answer_cascade(q, project_id=project_id, location=location, engine_id=engine_id)
+        result["answer"] = ans["answer"]
+        result["source_tier"] = ans["source_tier"]
+        result["citations"] = ans["citations"]
+        result["community_cards"] = ans["community_cards"]
+        result["is_fallback"] = ans["is_fallback"]
+        result["disclaimer"] = disclaimer_for(ans["source_tier"])
+
+    return result
