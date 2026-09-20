@@ -93,8 +93,8 @@ class _Patch:
 
 
 _RESULT_KEYS = {"intent", "confidence", "answer", "source_tier", "citations", "community_cards",
-                "clarify_questions", "post_draft", "timeline", "find_url", "disclaimer", "can_post",
-                "can_find_timeline", "can_find_similar", "rationale", "is_fallback"}
+                "clarify_questions", "post_draft", "timeline", "find_url", "search_suggestions_html",
+                "disclaimer", "can_post", "can_find_timeline", "can_find_similar", "rationale", "is_fallback"}
 
 
 def group_h() -> None:
@@ -153,6 +153,20 @@ def group_h() -> None:
         r = assist.handle_turn("q", [], project_id="p", engine_id="e")
     check("H8 answer turn w/ timeline signal -> can_find_timeline", r["can_find_timeline"] is True)
 
+    # web-tier answer carries source_tier + the Search-Suggestion chips (Phase 3).
+    orig = (assist.route_turn, assist.answer_cascade)
+    assist.route_turn = lambda m, h=None: _decision("answer-gov")
+    assist.answer_cascade = lambda q, **k: {
+        "answer": "live web answer", "source_tier": "web",
+        "citations": [{"source": "https://r", "title": "uscis.gov", "as_of": ""}],
+        "community_cards": [], "is_fallback": False, "search_suggestions_html": "<div>chips</div>"}
+    try:
+        r = assist.handle_turn("q", [], project_id="p", engine_id="e")
+    finally:
+        assist.route_turn, assist.answer_cascade = orig
+    check("H9 web tier carries source_tier + chips",
+          r["source_tier"] == "web" and r.get("search_suggestions_html") == "<div>chips</div>")
+
 
 def group_l() -> None:
     print("\nL — check_assist_anon_limit")
@@ -178,6 +192,7 @@ def group_r() -> None:
         "community_cards": [{"case_id": "c1", "title": "T", "snippet": "s", "url": "/case/c1", "channel": "app"}],
         "clarify_questions": [], "post_draft": {"title": "PT", "description": "PD", "groups": {}, "key_stages_or_info": {}, "key_dates": {}},
         "timeline": {"status": "not_found", "group_id": "", "group_name": "EAD-x", "criteria": {}},
+        "search_suggestions_html": "<div>chips</div>",
         "disclaimer": "not legal advice", "can_post": True, "can_find_timeline": True,
         "rationale": "why", "is_fallback": False,
     }
@@ -194,6 +209,7 @@ def group_r() -> None:
         check("R1c nested models coerced",
               resp.post_draft.title == "PT" and resp.timeline.status == "not_found"
               and resp.citations[0].as_of == "2026" and resp.community_cards[0].url == "/case/c1")
+        check("R1e search-suggestion chips mapped to the response", resp.search_suggestions_html == "<div>chips</div>")
         check("R1d anon turns_used counted", resp.turns_used == 1)
 
         # R2 anonymous over cap -> 429 with a sign-in nudge

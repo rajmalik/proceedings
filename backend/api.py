@@ -803,6 +803,7 @@ class AssistResponse(BaseModel):
     post_draft: AssistPostDraft | None = None
     timeline: AssistTimeline | None = None
     find_url: str = ""
+    search_suggestions_html: str = ""   # web tier: Google Search-Suggestion chips (UI must render)
     disclaimer: str = ""
     can_post: bool = True
     can_find_timeline: bool = False

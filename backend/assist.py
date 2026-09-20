@@ -658,6 +658,7 @@ def handle_turn(message: str, history=None, *, force_intent: str = "",
         "post_draft": None,
         "timeline": None,
         "find_url": "",
+        "search_suggestions_html": "",
         "disclaimer": disclaimer_for(""),
         "can_post": True,
         "can_find_timeline": (intent == "timeline-find") or _has_timeline_signal(decision),
@@ -682,6 +683,7 @@ def handle_turn(message: str, history=None, *, force_intent: str = "",
         result["citations"] = ans["citations"]
         result["community_cards"] = ans["community_cards"]
         result["is_fallback"] = ans["is_fallback"]
+        result["search_suggestions_html"] = ans.get("search_suggestions_html", "")
         result["disclaimer"] = disclaimer_for(ans["source_tier"])
 
     return result
