@@ -96,6 +96,41 @@ travel.state.gov blocks simple fetchers). Because of that:
    grounded `official_reference` doc with a citation (tier=gov), not fall through
    to ungrounded.
 
+## Spike (a) outcome — website data store NOT viable for uscis.gov (2026-09-20)
+
+Ran the option-(a) spike (`scripts/spike_public_website_datastore.py`): a Vertex
+AI Search **website data store** scoped to five USCIS areas (processing-times,
+adjustment-of-status, EAD, priority-dates, family). Findings:
+
+- Website search is an **ENTERPRISE-edition** feature (a STANDARD engine 400s
+  with *"Cannot use enterprise edition features"*). Fixed the engine to
+  enterprise.
+- Even on enterprise, search + answer returned **0 chunks / fallback**, and the
+  target sites never left `INDEXING_STATUS_UNSPECIFIED` (~30 min). Effective
+  grounding needs **advanced site search** (crawl-based indexing), which requires
+  **verifying domain ownership** in Search Console — **impossible for uscis.gov**
+  (we don't own it). Basic (unverified) indexing didn't ground anything usable.
+
+**Conclusion:** the website-data-store path is **blocked** for uscis.gov. Spike
+resources were torn down.
+
+**Pivot (implemented):** ground the specific area pages through the proven DS-1
+`official_reference` pipeline (same one that grounds AR-11). Fetchability-checked
+2026-09-20 — added to the config:
+
+| Area | URL | status |
+|---|---|---|
+| Adjustment of status | `…/adjustment-of-status` | ✅ added (1312w) |
+| EAD | `…/employment-authorization-document` | ✅ added (1098w) |
+| Priority dates | `…/visa-availability-and-priority-dates` | ✅ added (1564w) |
+| Family | `https://www.uscis.gov/family` | ✅ added (163w) |
+| Processing times | `https://egov.uscis.gov/processing-times` | ❌ 403 (bot-blocked) — needs a dedicated adapter; deferred |
+
+So 4 of the 5 areas are grounded via DS-1 (curated, our Cloud Scheduler refresh).
+The egov processing-times page (and any broader open-ended coverage) remains the
+**option-B (sitemap-scoped ingest)** territory if/when wanted — that's the viable
+broad path since it needs no domain ownership.
+
 ## Non-goals / notes
 
 - Not a general web crawler; only a curated, auditable set of authoritative

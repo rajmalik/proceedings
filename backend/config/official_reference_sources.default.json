@@ -49,6 +49,30 @@
       "title": "Form I-130, Petition for Alien Relative",
       "source_system": "uscis",
       "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/green-card/green-card-processes-and-procedures/adjustment-of-status",
+      "title": "Adjustment of Status (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/green-card/green-card-processes-and-procedures/employment-authorization-document",
+      "title": "Employment Authorization Document (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/green-card/green-card-processes-and-procedures/visa-availability-and-priority-dates",
+      "title": "Visa Availability and Priority Dates (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/family",
+      "title": "Family-based immigration (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
     }
   ]
 }
