@@ -9,6 +9,7 @@ import PostingCard, { type PostingCardData } from '@/components/PostingCard'
 import Markdown from '@/components/Markdown'
 import { AppliedFilters } from '@/components/StrictnessSlider'
 import SuggestedFilters, { facetId, type SuggestedFilterGroup } from '@/components/SuggestedFilters'
+import { openAssist } from '@/lib/assistLauncher'
 
 type QueryTag = { field: string; code: string; label: string }
 
@@ -336,6 +337,17 @@ export default function UnifiedSearch() {
           <span className="material-symbols-outlined text-[20px]">tune</span>
           <span className="hidden sm:inline">Advanced Search</span>
         </Link>
+        {/* AI-Assist launcher — inline here on Home (the global bottom-right
+            launcher is suppressed on "/"; it opens the same one panel). */}
+        <button
+          type="button"
+          onClick={openAssist}
+          aria-label="Ask AI/Post"
+          className="btn-primary rounded-full flex items-center gap-1.5 shrink-0 whitespace-nowrap"
+        >
+          <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
+          <span className="hidden sm:inline">Ask AI/Post</span>
+        </button>
       </div>
 
       {error && <div className="card text-error mb-4">{error}</div>}

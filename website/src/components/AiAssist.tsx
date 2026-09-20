@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import Markdown from '@/components/Markdown'
 import { userHeaders } from '@/lib/activeUser'
 import { getAssistSessionId } from '@/lib/assistSession'
 import { writePostDraft, type Groups, type KV } from '@/lib/assistDraft'
+import { ASSIST_OPEN_EVENT } from '@/lib/assistLauncher'
 
 type Citation = { source: string; title: string; as_of: string }
 type CommunityCard = { case_id: string; title: string; snippet: string; url: string; channel: string }
@@ -59,6 +60,7 @@ function loadConversation(): { turns: Turn[]; open: boolean } {
 
 export default function AiAssist() {
   const router = useRouter()
+  const pathname = usePathname()
   // Lazy init from sessionStorage (client only) so the persisted conversation is
   // the INITIAL state — no restore effect that a StrictMode double-invoke could
   // clobber. `mounted` gates the first paint to avoid an SSR hydration mismatch.
@@ -72,6 +74,15 @@ export default function AiAssist() {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => setMounted(true), [])
+
+  // Open on request from the inline Home-page launcher (which lives in the
+  // search row, not bottom-right) — a window event, since that button is in a
+  // different component (UnifiedSearch) from this global panel.
+  useEffect(() => {
+    const onOpen = () => setOpen(true)
+    window.addEventListener(ASSIST_OPEN_EVENT, onOpen)
+    return () => window.removeEventListener(ASSIST_OPEN_EVENT, onOpen)
+  }, [])
 
   // Persist on change. Safe against StrictMode double-invoke: the initial state
   // is already the saved value, so an early write just re-saves it (no clobber).
@@ -279,19 +290,21 @@ export default function AiAssist() {
   // takes over the space.
   const active = turns.length > 0
 
-  // Collapsed: a floating launcher pinned to the bottom-right on EVERY page, so
-  // the user can reopen and continue the conversation from anywhere. There is no
-  // separate "Post a message" button — posting starts from inside this chat and
-  // routes to /post when the conversation implies it.
+  // Collapsed: a floating launcher pinned to the bottom-right — on every page
+  // EXCEPT the Home page ("/"), where the launcher instead sits inline in the
+  // search row (UnifiedSearch, via the ASSIST_OPEN_EVENT). There is no separate
+  // "Post a message" button — posting starts from inside this chat and routes to
+  // /post when the conversation implies it.
   if (!open) {
+    if (pathname === '/') return null
     return (
       <button
         onClick={() => setOpen(true)}
-        aria-label="Ask / Post a Question"
+        aria-label="Ask AI/Post"
         className="fixed bottom-5 right-5 z-50 btn-primary rounded-full shadow-lg flex items-center gap-2 px-4 py-3"
       >
         <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
-        <span className="hidden sm:inline">Ask / Post a Question</span>
+        <span className="hidden sm:inline">Ask AI/Post</span>
       </button>
     )
   }
@@ -304,7 +317,7 @@ export default function AiAssist() {
       <header className="flex items-center justify-between px-4 py-3 border-b border-outline-variant shrink-0">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-primary">auto_awesome</span>
-          <span className="text-label-md font-semibold text-primary">Ask / Post a Question</span>
+          <span className="text-label-md font-semibold text-primary">Ask AI/Post</span>
         </div>
         <div className="flex items-center gap-1">
           <button

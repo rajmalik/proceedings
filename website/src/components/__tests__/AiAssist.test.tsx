@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Hoisted spies so the vi.mock factories can reference them.
 const { push, writePostDraft } = vi.hoisted(() => ({ push: vi.fn(), writePostDraft: vi.fn() }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }))
+// pathname defaults to a non-home route so the fixed bottom-right launcher
+// renders in these tests (on "/" the launcher is inline in UnifiedSearch).
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push }), usePathname: () => '/find' }))
 vi.mock('@/lib/assistDraft', () => ({ writePostDraft }))
 vi.mock('@/lib/assistSession', () => ({ getAssistSessionId: () => 'sess-test' }))
 // activeUser pulls in Firebase init at import time (throws in the test env with
@@ -34,7 +36,7 @@ function fetchReturns(...responses: Array<{ ok?: boolean; status?: number; data:
 
 function ask(text = 'hi') {
   // The chatbot is collapsed by default — open it before interacting.
-  const launcher = screen.queryByRole('button', { name: 'Ask / Post a Question' })
+  const launcher = screen.queryByRole('button', { name: 'Ask AI/Post' })
   if (launcher) fireEvent.click(launcher)
   fireEvent.change(screen.getByLabelText('Ask or post a question'), { target: { value: text } })
   fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
@@ -45,19 +47,19 @@ beforeEach(() => {
 })
 
 describe('AiAssist', () => {
-  it('is collapsed by default: shows the "Ask / Post a Question" launcher, not the chat input', () => {
+  it('is collapsed by default: shows the "Ask AI/Post" launcher, not the chat input', () => {
     render(<AiAssist />)
-    expect(screen.getByRole('button', { name: 'Ask / Post a Question' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask AI/Post' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Ask or post a question')).toBeNull()
   })
 
   it('expands on launch and collapses again (no separate Post button)', () => {
     render(<AiAssist />)
-    fireEvent.click(screen.getByRole('button', { name: 'Ask / Post a Question' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI/Post' }))
     expect(screen.getByLabelText('Ask or post a question')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse' }))
     expect(screen.queryByLabelText('Ask or post a question')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Ask / Post a Question' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask AI/Post' })).toBeInTheDocument()
   })
 
   it('renders a grounded answer with a dated source and the single static disclaimer', async () => {
@@ -77,7 +79,7 @@ describe('AiAssist', () => {
 
   it('shows the small-print disclaimer at the bottom whenever the chat is open', () => {
     render(<AiAssist />)
-    fireEvent.click(screen.getByRole('button', { name: 'Ask / Post a Question' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI/Post' }))
     expect(screen.getByText(/general information about U\.S\. immigration, not legal advice/i)).toBeInTheDocument()
   })
 
