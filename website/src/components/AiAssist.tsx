@@ -179,18 +179,19 @@ export default function AiAssist() {
     )
   }
 
-  // Collapsed: a floating launcher on the right rail. There is no separate
-  // "Post a message" button anymore — posting starts from inside this chat and
-  // routes to /post when the conversation implies it.
+  // Collapsed: an inline launcher that sits on the same bar as the Search
+  // buttons (it renders wherever AiAssist is mounted). There is no separate
+  // "Post a message" button — posting starts from inside this chat and routes to
+  // /post when the conversation implies it.
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
-        aria-label="Open AI Assist"
-        className="fixed bottom-5 right-5 z-40 btn-primary rounded-full shadow-lg flex items-center gap-2 px-4 py-3"
+        aria-label="Ask / Post a Question"
+        className="btn-primary rounded-full flex items-center gap-1.5 shrink-0 whitespace-nowrap"
       >
-        <span className="material-symbols-outlined">auto_awesome</span>
-        <span className="hidden sm:inline">Ask AI</span>
+        <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
+        <span className="hidden sm:inline">Ask / Post a Question</span>
       </button>
     )
   }
@@ -203,11 +204,11 @@ export default function AiAssist() {
       <header className="flex items-center justify-between px-4 py-3 border-b border-outline-variant">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-primary">auto_awesome</span>
-          <span className="text-label-md font-semibold text-primary">Ask AI</span>
+          <span className="text-label-md font-semibold text-primary">Ask / Post a Question</span>
         </div>
         <button
           onClick={() => setOpen(false)}
-          aria-label="Collapse AI Assist"
+          aria-label="Collapse"
           className="p-1 rounded hover:bg-surface-container text-on-surface-variant"
         >
           <span className="material-symbols-outlined text-[20px]">close</span>
@@ -249,8 +250,8 @@ export default function AiAssist() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about U.S. immigration…"
-          aria-label="Ask AI"
+          placeholder="Ask a question or describe your situation…"
+          aria-label="Ask or post a question"
           className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-full px-4 py-2 text-body-md focus:outline-none focus:border-primary"
         />
         <button type="submit" disabled={input.trim().length < 2 || loading} className="btn-secondary rounded-full disabled:opacity-40">Ask</button>

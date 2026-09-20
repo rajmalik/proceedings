@@ -338,6 +338,9 @@ export default function UnifiedSearch() {
           <span className="material-symbols-outlined text-[20px]">tune</span>
           <span className="hidden sm:inline">Advanced Search</span>
         </Link>
+        {/* AI Assist launcher lives on the same bar as Search; expands into a
+            floating chatbot. Replaces the old Post button (posting is chat-driven). */}
+        {AI_ASSIST_ENABLED && <AiAssist />}
       </div>
 
       {error && <div className="card text-error mb-4">{error}</div>}
@@ -500,10 +503,6 @@ export default function UnifiedSearch() {
         )}
 
       </div>
-
-      {/* AI Assist — a collapsible floating chatbot (replaces the old Post button
-          and the static AI panel); flag-gated, fixed-position, so it's outside the grid. */}
-      {AI_ASSIST_ENABLED && <AiAssist />}
     </div>
   )
 }
