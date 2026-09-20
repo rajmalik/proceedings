@@ -83,6 +83,7 @@ jobs:
           python tests/test_assist_route.py
           python tests/test_assist_hardening.py
           python tests/test_assist_routing_edges.py
+          python tests/test_assist_websearch.py
 
   website:
     needs: changes

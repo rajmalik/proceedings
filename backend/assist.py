@@ -250,14 +250,18 @@ def _is_decline(answer: str) -> bool:
 
 
 def _answer_shape(answer: str, source_tier: str, *, citations=None,
-                  community_cards=None, is_fallback: bool = False) -> dict:
-    """The uniform answer dict every tier returns (also the keys api.py maps)."""
+                  community_cards=None, is_fallback: bool = False,
+                  search_suggestions_html: str = "") -> dict:
+    """The uniform answer dict every tier returns (also the keys api.py maps).
+    `search_suggestions_html` is only populated by the web-search tier (Google's
+    Search-Suggestion chips, which its terms require the UI to render)."""
     return {
         "answer": answer,
         "source_tier": source_tier,
         "citations": citations or [],
         "community_cards": community_cards or [],
         "is_fallback": is_fallback,
+        "search_suggestions_html": search_suggestions_html,
     }
 
 
@@ -325,6 +329,77 @@ def _ungrounded_answer(question: str) -> dict:
     advice (B2). Marked is_fallback since it is not grounded in our sources."""
     body = query.generate_direct_answer(question)
     return _answer_shape(f"{_UNGROUNDED_LABEL}\n\n{body}", "ungrounded", is_fallback=True)
+
+
+# ---------------------------------------------------------------------------
+# Web-search tier (Option B) — Gemini "Grounding with Google Search".
+# Phase 1: the tier function only; wired into answer_cascade in a later phase,
+# behind AI_ASSIST_WEB_SEARCH (default off — grounding-with-search is priced).
+# ---------------------------------------------------------------------------
+_WEB_SEARCH_ENABLED = os.getenv("AI_ASSIST_WEB_SEARCH", "0") == "1"
+
+_WEB_SEARCH_PROMPT = (
+    "You are a concise U.S. immigration assistant. Answer the question directly and briefly, "
+    "using ONLY authoritative official U.S. government sources (prefer uscis.gov, travel.state.gov, "
+    "dhs.gov). If those sources do not cover it, say you don't have that information. "
+    "Question: {q}"
+)
+
+# The grounding model sometimes leaks inline citation markers like "[cite: 1, 3]"
+# or "[citation:2]" into the answer text — strip them before returning.
+_CITE_MARKER = re.compile(r"\s*\[(?:cite|citation)s?:[^\]]*\]", re.IGNORECASE)
+
+
+def _strip_cite_markers(text: str) -> str:
+    return _CITE_MARKER.sub("", text or "").strip()
+
+
+def _web_tool():
+    """The Google-Search grounding tool (newer models want `google_search`; older
+    ones `google_search_retrieval`)."""
+    try:
+        return genai.types.Tool(google_search=genai.types.GoogleSearch())
+    except Exception:  # noqa: BLE001 - older SDK shape
+        return genai.types.Tool(google_search_retrieval=genai.types.GoogleSearchRetrieval())
+
+
+def _web_search_answer(question: str):
+    """Live-web answer grounded via Gemini + Google Search, restricted (by prompt)
+    to official U.S. government sources. Returns the answer shape with
+    source_tier="web" (citations = the grounded web sources; the redirect URI is
+    kept per Google's terms, the real domain is the title) and the Search-
+    Suggestion chips HTML. Returns None on an empty answer or any failure so the
+    cascade falls through to the ungrounded tier. Never raises."""
+    try:
+        client = posting.genai_client()
+        resp = posting._retry(lambda: client.models.generate_content(
+            model=_assist_model(),
+            contents=_WEB_SEARCH_PROMPT.format(q=question),
+            config=genai.types.GenerateContentConfig(
+                tools=[_web_tool()], temperature=0.1, max_output_tokens=1024),
+        ), attempts=2)
+        answer = _strip_cite_markers(resp.text or "")
+        if not answer:
+            return None
+
+        citations, chips = [], ""
+        try:
+            gm = resp.candidates[0].grounding_metadata
+            for ch in (getattr(gm, "grounding_chunks", None) or []):
+                web = getattr(ch, "web", None)
+                uri = getattr(web, "uri", "") if web else ""
+                if uri:
+                    citations.append({"source": uri, "title": (getattr(web, "title", "") or ""), "as_of": ""})
+            sep = getattr(gm, "search_entry_point", None)
+            chips = getattr(sep, "rendered_content", "") if sep else ""
+        except Exception:  # noqa: BLE001 - metadata is best-effort
+            pass
+
+        return _answer_shape(answer, "web", citations=citations, is_fallback=False,
+                             search_suggestions_html=chips)
+    except Exception as e:  # noqa: BLE001 - best-effort tier, never break the turn
+        print(f"assist._web_search_answer: fallback ({type(e).__name__}: {e})")
+        return None
 
 
 def answer_cascade(question: str, *, project_id: str, location: str, engine_id: str) -> dict:
