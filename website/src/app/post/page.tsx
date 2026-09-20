@@ -2,8 +2,9 @@
 
 import { Suspense,useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { getActiveUser, userHeaders } from '@/lib/activeUser'
+import { getActiveUser, userHeaders, DEMO_PICKER_ENABLED } from '@/lib/activeUser'
 import { useRequireUser } from '@/lib/useRequireUser'
+import { useAuth } from '@/contexts/AuthContext'
 import { readAndClearPostDraft } from '@/lib/assistDraft'
 import { mergeReconcile } from '@/lib/postReconcile'
 
@@ -54,6 +55,7 @@ const POSTING_TYPE_LABEL: Record<string, string> = {
 
 function PostPageInner() {
   useRequireUser()
+  const { user, loading: authLoading } = useAuth()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [groups, setGroups] = useState<Groups>(EMPTY)
@@ -136,7 +138,15 @@ function PostPageInner() {
   // AI-Assist hand-off: if a draft was stashed by the assistant, pre-fill /post
   // from it once, run it through the same reconcile step, then clear it
   // (read-once). No draft -> normal empty composer. (Q11/C2, D1/D3)
+  //
+  // Gated on identity: an anonymous visitor is bounced to /login by
+  // useRequireUser, so we must NOT read-and-clear the draft on that pre-login
+  // mount — otherwise it's consumed and gone after sign-in. Only consume once an
+  // identity exists (after the ?next=/post round-trip), or in dev/demo where
+  // there's no forced login. Runs when auth settles.
   useEffect(() => {
+    if (authLoading) return
+    if (!DEMO_PICKER_ENABLED && !user) return  // pre-login: leave the draft for after sign-in
     const draft = readAndClearPostDraft()
     if (!draft) return
     setTitle(draft.title)
@@ -152,7 +162,7 @@ function PostPageInner() {
     }) as string[])
     void applyTagResult(g, st, dt)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [user, authLoading])
 
   async function preview() {
     if (!canPreview) return

@@ -4,6 +4,8 @@ import './globals.css'
 import TopAppBar from '@/components/TopAppBar'
 import MobileBottomNav from '@/components/MobileBottomNav'
 import { Providers } from '@/components/Providers'
+import AiAssist from '@/components/AiAssist'
+import { AI_ASSIST_ENABLED } from '@/lib/flags'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -75,6 +77,9 @@ export default function RootLayout({
             {children}
           </main>
           <MobileBottomNav />
+          {/* AI Assist — a collapsible floating chatbot on EVERY page (bottom-right),
+              so the conversation can be resumed from anywhere. Flag-gated. */}
+          {AI_ASSIST_ENABLED && <AiAssist />}
           {/* Footer - shown on desktop, hidden on mobile due to bottom nav */}
           <footer className="hidden md:block w-full py-8 px-margin-desktop bg-surface-container-low border-t border-outline-variant">
             <div className="max-w-7xl mx-auto">

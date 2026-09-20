@@ -1,10 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import Markdown from '@/components/Markdown'
-import DisclaimerBanner from '@/components/DisclaimerBanner'
 import { userHeaders } from '@/lib/activeUser'
 import { getAssistSessionId } from '@/lib/assistSession'
 import { writePostDraft, type Groups, type KV } from '@/lib/assistDraft'
@@ -37,15 +36,46 @@ type Turn = { id: string; role: 'user' | 'ai'; content: string; data?: AssistRes
 let _seq = 0
 const _id = (p: string) => `${p}-${Date.now()}-${_seq++}`
 
+// Conversation + open state persist for the session so the user can navigate
+// between pages (or reload) and come back to the same chat.
+const CONV_KEY = 'aiAssist.conversation.v1'
+
+function loadConversation(): { turns: Turn[]; open: boolean } {
+  try {
+    const raw = sessionStorage.getItem(CONV_KEY)
+    if (raw) {
+      const s = JSON.parse(raw)
+      return {
+        turns: Array.isArray(s?.turns) ? s.turns : [],
+        open: typeof s?.open === 'boolean' ? s.open : false,
+      }
+    }
+  } catch { /* sessionStorage unavailable — start fresh */ }
+  return { turns: [], open: false }
+}
+
 export default function AiAssist() {
   const router = useRouter()
-  const [turns, setTurns] = useState<Turn[]>([])
+  // Lazy init from sessionStorage (client only) so the persisted conversation is
+  // the INITIAL state — no restore effect that a StrictMode double-invoke could
+  // clobber. `mounted` gates the first paint to avoid an SSR hydration mismatch.
+  const [mounted, setMounted] = useState(false)
+  const [turns, setTurns] = useState<Turn[]>(() => (typeof window === 'undefined' ? [] : loadConversation().turns))
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [nudge, setNudge] = useState(false)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState<boolean>(() => (typeof window === 'undefined' ? false : loadConversation().open))
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => setMounted(true), [])
+
+  // Persist on change. Safe against StrictMode double-invoke: the initial state
+  // is already the saved value, so an early write just re-saves it (no clobber).
+  useEffect(() => {
+    if (!mounted) return
+    try { sessionStorage.setItem(CONV_KEY, JSON.stringify({ turns, open })) } catch { /* ignore */ }
+  }, [turns, open, mounted])
 
   const lastUserMessage = () => [...turns].reverse().find((t) => t.role === 'user')?.content || ''
 
@@ -159,8 +189,6 @@ export default function AiAssist() {
           </div>
         )}
 
-        <DisclaimerBanner text={d.disclaimer} className="mt-1 rounded-lg bg-surface-container-high text-on-surface-variant py-1.5 px-2" />
-
         <div className="flex flex-wrap gap-2 pt-1">
           {d.intent === 'post' && d.post_draft ? (
             <button onClick={() => handlePost(turn)} className="btn-primary rounded-full text-caption">Continue to your post →</button>
@@ -179,16 +207,20 @@ export default function AiAssist() {
     )
   }
 
-  // Collapsed: an inline launcher that sits on the same bar as the Search
-  // buttons (it renders wherever AiAssist is mounted). There is no separate
-  // "Post a message" button — posting starts from inside this chat and routes to
-  // /post when the conversation implies it.
+  // Client-only widget: render nothing until mounted so the server HTML (no
+  // sessionStorage) and the first client render agree.
+  if (!mounted) return null
+
+  // Collapsed: a floating launcher pinned to the bottom-right on EVERY page, so
+  // the user can reopen and continue the conversation from anywhere. There is no
+  // separate "Post a message" button — posting starts from inside this chat and
+  // routes to /post when the conversation implies it.
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
         aria-label="Ask / Post a Question"
-        className="btn-primary rounded-full flex items-center gap-1.5 shrink-0 whitespace-nowrap"
+        className="fixed bottom-5 right-5 z-50 btn-primary rounded-full shadow-lg flex items-center gap-2 px-4 py-3"
       >
         <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
         <span className="hidden sm:inline">Ask / Post a Question</span>
@@ -199,9 +231,9 @@ export default function AiAssist() {
   return (
     <aside
       aria-label="AI Assist"
-      className="fixed bottom-5 right-5 z-40 flex flex-col w-[24rem] max-w-[calc(100vw-2.5rem)] h-[70vh] max-h-[calc(100vh-2.5rem)] bg-surface-container-lowest border border-outline-variant rounded-2xl shadow-2xl"
+      className="fixed bottom-5 right-5 z-50 flex flex-col w-[26rem] max-w-[calc(100vw-2rem)] h-[80vh] max-h-[calc(100vh-6rem)] bg-surface-container-lowest border border-outline-variant rounded-2xl shadow-2xl"
     >
-      <header className="flex items-center justify-between px-4 py-3 border-b border-outline-variant">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-outline-variant shrink-0">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-primary">auto_awesome</span>
           <span className="text-label-md font-semibold text-primary">Ask / Post a Question</span>
@@ -215,19 +247,25 @@ export default function AiAssist() {
         </button>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-        {turns.length === 0 && (
+      {/* Conversation log — capped so the writing area stays large; scrolls. */}
+      <div
+        ref={scrollRef}
+        className="overflow-y-auto px-4 py-3 space-y-4 shrink-0 border-b border-outline-variant"
+        style={{ maxHeight: '30%' }}
+      >
+        {turns.length === 0 ? (
           <p className="text-caption text-on-surface-variant">
-            Ask an immigration question, describe your situation to post it, or ask about EAD/H-1B processing times.
+            Ask an immigration question, or describe your situation and I&apos;ll help you post it to the community.
           </p>
-        )}
-        {turns.map((t) =>
-          t.role === 'user' ? (
-            <div key={t.id} className="flex justify-end">
-              <div className="bg-primary-container text-on-primary-container rounded-2xl rounded-tr-sm px-3 py-2 text-body-md max-w-[90%]">{t.content}</div>
-            </div>
-          ) : (
-            renderAi(t)
+        ) : (
+          turns.map((t) =>
+            t.role === 'user' ? (
+              <div key={t.id} className="flex justify-end">
+                <div className="bg-primary-container text-on-primary-container rounded-2xl rounded-tr-sm px-3 py-2 text-body-md max-w-[90%]">{t.content}</div>
+              </div>
+            ) : (
+              renderAi(t)
+            )
           )
         )}
         {loading && (
@@ -239,23 +277,36 @@ export default function AiAssist() {
         )}
       </div>
 
-      {error && <p className="text-caption text-error px-4">{error}</p>}
+      {error && <p className="text-caption text-error px-4 pt-2">{error}</p>}
       {nudge && (
-        <p className="text-caption text-on-surface-variant px-4">
+        <p className="text-caption text-on-surface-variant px-4 pt-2">
           You&apos;ve reached the guest limit — <Link href="/login?next=/" className="text-primary hover:underline">sign in</Link> to keep asking.
         </p>
       )}
 
-      <form onSubmit={(e) => { e.preventDefault(); send(input) }} className="border-t border-outline-variant p-3 flex items-center gap-2">
-        <input
+      {/* Composer — the large writing area (this is where a full message/post is
+          drafted). Enter inserts a newline; Cmd/Ctrl+Enter or the button sends. */}
+      <form
+        onSubmit={(e) => { e.preventDefault(); send(input) }}
+        className="flex-1 flex flex-col p-3 gap-2 min-h-0"
+      >
+        <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question or describe your situation…"
+          onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(input) } }}
+          placeholder="Ask a question, or describe your situation to post it…"
           aria-label="Ask or post a question"
-          className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-full px-4 py-2 text-body-md focus:outline-none focus:border-primary"
+          className="flex-1 min-h-0 resize-none bg-surface-container-lowest border border-outline-variant rounded-xl px-4 py-3 text-body-md focus:outline-none focus:border-primary"
         />
-        <button type="submit" disabled={input.trim().length < 2 || loading} className="btn-secondary rounded-full disabled:opacity-40">Ask</button>
+        <div className="flex items-center justify-end shrink-0">
+          <button type="submit" disabled={input.trim().length < 2 || loading} className="btn-primary rounded-full disabled:opacity-40">Ask</button>
+        </div>
       </form>
+
+      {/* Disclaimer — small print, always at the bottom (not per-answer). */}
+      <p className="px-4 pb-2 pt-0 text-[10px] leading-tight text-center text-on-surface-variant shrink-0">
+        This is general information about U.S. immigration, not legal advice.
+      </p>
     </aside>
   )
 }

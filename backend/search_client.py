@@ -178,7 +178,7 @@ def _reference_to_chunk(ref) -> dict | None:
 
 
 def answer_query(question: str, project_id: str, location: str, engine_id: str,
-                 max_results: int = 5, filter_expr: str = "") -> dict:
+                 max_results: int = 5, filter_expr: str = "", preamble: str = "") -> dict:
     """
     Ground `question` against the Discovery Engine datastore via the Answer API.
 
@@ -187,6 +187,12 @@ def answer_query(question: str, project_id: str, location: str, engine_id: str,
     indexed/filterable fields such as `doc_kind` — never `channel` (unregistered
     facet → 400). Empty string (default) preserves the pre-existing unfiltered
     behavior for /api/ask and /api/chat.
+
+    `preamble`, when given, is a custom instruction added to the Answer API's
+    generation prompt (AnswerGenerationSpec.prompt_spec.preamble) — used to keep
+    grounded answers concise and honest (e.g. "answer only from the sources; if
+    the specific answer isn't there, say so rather than inferring"). Default ""
+    keeps the API's stock behavior for /api/ask and /api/chat.
 
     Returns the same dict shape as query() in query.py.
     """
@@ -201,21 +207,25 @@ def answer_query(question: str, project_id: str, location: str, engine_id: str,
     if filter_expr:
         search_params.filter = filter_expr
 
+    ans_spec = de.AnswerQueryRequest.AnswerGenerationSpec(
+        include_citations=True,
+        # Do NOT let the API skip queries via its adversarial / non-answer-
+        # seeking / low-relevance classifiers: they are non-deterministic and
+        # intermittently drop legitimate questions (e.g. imperative phrasings
+        # like "Tell me about ...") to 0 references. We ground purely on
+        # whether the datastore returned references (see below).
+        ignore_adversarial_query=False,
+        ignore_non_answer_seeking_query=False,
+        ignore_low_relevant_content=False,
+    )
+    if preamble:
+        ans_spec.prompt_spec = de.AnswerQueryRequest.AnswerGenerationSpec.PromptSpec(preamble=preamble)
+
     request = de.AnswerQueryRequest(
         serving_config=_serving_config(project_id, location, engine_id),
         query=de.Query(text=question),
         search_spec=de.AnswerQueryRequest.SearchSpec(search_params=search_params),
-        answer_generation_spec=de.AnswerQueryRequest.AnswerGenerationSpec(
-            include_citations=True,
-            # Do NOT let the API skip queries via its adversarial / non-answer-
-            # seeking / low-relevance classifiers: they are non-deterministic and
-            # intermittently drop legitimate questions (e.g. imperative phrasings
-            # like "Tell me about ...") to 0 references. We ground purely on
-            # whether the datastore returned references (see below).
-            ignore_adversarial_query=False,
-            ignore_non_answer_seeking_query=False,
-            ignore_low_relevant_content=False,
-        ),
+        answer_generation_spec=ans_spec,
         grounding_spec=de.AnswerQueryRequest.GroundingSpec(include_grounding_supports=True),
     )
 

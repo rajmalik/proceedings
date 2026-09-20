@@ -41,7 +41,7 @@ function ask(text = 'hi') {
 }
 
 beforeEach(() => {
-  push.mockClear(); writePostDraft.mockClear(); localStorage.clear()
+  push.mockClear(); writePostDraft.mockClear(); localStorage.clear(); sessionStorage.clear()
 })
 
 describe('AiAssist', () => {
@@ -60,7 +60,7 @@ describe('AiAssist', () => {
     expect(screen.getByRole('button', { name: 'Ask / Post a Question' })).toBeInTheDocument()
   })
 
-  it('renders a grounded answer with the inline disclaimer and a dated source', async () => {
+  it('renders a grounded answer with a dated source and the single static disclaimer', async () => {
     fetchReturns({ data: resp({
       answer: 'The H-1B grace period is 60 days.', source_tier: 'gov',
       citations: [{ source: 'https://uscis.gov/x', title: 'USCIS grace period', as_of: '2026-09-01' }],
@@ -68,10 +68,29 @@ describe('AiAssist', () => {
     render(<AiAssist />)
     ask('grace period?')
     expect(await screen.findByText('The H-1B grace period is 60 days.')).toBeInTheDocument()
-    expect(screen.getByText('Not legal advice.')).toBeInTheDocument()
     const link = screen.getByText('USCIS grace period').closest('a')
     expect(link).toHaveAttribute('href', 'https://uscis.gov/x')
     expect(screen.getByText(/as of 2026-09-01/)).toBeInTheDocument()
+    // Disclaimer is a single static footer, NOT repeated per answer.
+    expect(screen.getAllByText(/not legal advice/i)).toHaveLength(1)
+  })
+
+  it('shows the small-print disclaimer at the bottom whenever the chat is open', () => {
+    render(<AiAssist />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask / Post a Question' }))
+    expect(screen.getByText(/general information about U\.S\. immigration, not legal advice/i)).toBeInTheDocument()
+  })
+
+  it('persists the conversation across remounts (navigation)', async () => {
+    fetchReturns({ data: resp({ answer: 'Persisted answer body.' }) })
+    const { unmount } = render(<AiAssist />)
+    ask('remember this')
+    await screen.findByText('Persisted answer body.')
+    unmount()
+    // A fresh mount (as if on another page) restores the open state + turns.
+    render(<AiAssist />)
+    expect(await screen.findByText('Persisted answer body.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Ask or post a question')).toBeInTheDocument()
   })
 
   it('renders community cards that link back to the original posting (Q9)', async () => {

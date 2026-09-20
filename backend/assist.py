@@ -218,6 +218,19 @@ _COMMUNITY_FILTER = '(NOT doc_kind: ANY("gov_news","official_reference"))'
 # know it is not grounded in our sources and is not legal advice.
 _UNGROUNDED_LABEL = "**General information — not from our sources, not legal advice.**"
 
+# Steers the managed Answer API away from verbose, over-inferred answers — the
+# root cause of the "wrong form" hallucination (it synthesized a long answer from
+# loosely-related gov_news instead of the specific form). Keeps grounded answers
+# short, form-first, and honest when the specific answer isn't in the sources.
+_ANSWER_PREAMBLE = (
+    "You are a concise U.S. immigration assistant. Answer the question directly and briefly "
+    "(one or two short paragraphs at most). If the user asks which form to file, name the "
+    "specific USCIS form (title and number, e.g. Form AR-11) first. Use ONLY facts present in "
+    "the provided sources. If the sources do not contain the specific answer to THIS question, "
+    "say you don't have that specific information and suggest checking uscis.gov — do NOT infer "
+    "or generalize an answer from loosely related content."
+)
+
 
 def _answer_shape(answer: str, source_tier: str, *, citations=None,
                   community_cards=None, is_fallback: bool = False) -> dict:
@@ -272,7 +285,7 @@ def _gov_answer(question: str, *, project_id: str, location: str, engine_id: str
     """Grounded answer over gov/official docs. Returns the answer shape, or None
     on a miss (is_fallback) so the cascade can fall through."""
     res = search_client.answer_query(question, project_id, location, engine_id,
-                                     filter_expr=_GOV_FILTER)
+                                     filter_expr=_GOV_FILTER, preamble=_ANSWER_PREAMBLE)
     if res.get("is_fallback"):
         return None
     return _answer_shape(res["answer"], "gov",
@@ -283,7 +296,7 @@ def _community_answer(question: str, *, project_id: str, location: str, engine_i
     """Grounded summary + linked cards over community postings. Returns the answer
     shape, or None on a miss."""
     res = search_client.answer_query(question, project_id, location, engine_id,
-                                     filter_expr=_COMMUNITY_FILTER)
+                                     filter_expr=_COMMUNITY_FILTER, preamble=_ANSWER_PREAMBLE)
     if res.get("is_fallback"):
         return None
     return _answer_shape(res["answer"], "community",

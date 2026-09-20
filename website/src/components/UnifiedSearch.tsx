@@ -9,8 +9,6 @@ import PostingCard, { type PostingCardData } from '@/components/PostingCard'
 import Markdown from '@/components/Markdown'
 import { AppliedFilters } from '@/components/StrictnessSlider'
 import SuggestedFilters, { facetId, type SuggestedFilterGroup } from '@/components/SuggestedFilters'
-import AiAssist from '@/components/AiAssist'
-import { AI_ASSIST_ENABLED } from '@/lib/flags'
 
 type QueryTag = { field: string; code: string; label: string }
 
@@ -338,9 +336,6 @@ export default function UnifiedSearch() {
           <span className="material-symbols-outlined text-[20px]">tune</span>
           <span className="hidden sm:inline">Advanced Search</span>
         </Link>
-        {/* AI Assist launcher lives on the same bar as Search; expands into a
-            floating chatbot. Replaces the old Post button (posting is chat-driven). */}
-        {AI_ASSIST_ENABLED && <AiAssist />}
       </div>
 
       {error && <div className="card text-error mb-4">{error}</div>}

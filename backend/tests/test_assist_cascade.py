@@ -59,10 +59,13 @@ def _miss():
     return {"answer": search_client.FALLBACK_MESSAGE, "chunks": [], "is_fallback": True}
 
 
-def _install_fake_answer(script: dict, calls: list):
-    """Fake search_client.answer_query dispatching on filter_expr; records calls."""
-    def fake(question, project_id, location, engine_id, max_results=5, filter_expr=""):
+def _install_fake_answer(script: dict, calls: list, preambles: list | None = None):
+    """Fake search_client.answer_query dispatching on filter_expr; records calls
+    (and preambles, if a list is given)."""
+    def fake(question, project_id, location, engine_id, max_results=5, filter_expr="", preamble=""):
         calls.append(filter_expr)
+        if preambles is not None:
+            preambles.append(preamble)
         return script.get(filter_expr, _miss())
     orig = search_client.answer_query
     search_client.answer_query = fake
@@ -127,6 +130,17 @@ def group_b() -> None:
     finally:
         search_client.answer_query = orig
     check("B5 miss -> None (cascade signal)", none_res is None)
+
+    # B6: the concise/honest preamble is passed on the grounded call (item 6 — the
+    # "wrong form" hallucination fix).
+    calls3, preambles = [], []
+    orig = _install_fake_answer({assist._GOV_FILTER: _grounded([_chunk()])}, calls3, preambles)
+    try:
+        assist._gov_answer("which form?", project_id="p", location="global", engine_id="e")
+    finally:
+        search_client.answer_query = orig
+    check("B6 gov answer passes a concise preamble",
+          bool(preambles) and "concise" in preambles[0].lower() and "form" in preambles[0].lower())
 
 
 # ---------------------------------------------------------------------------

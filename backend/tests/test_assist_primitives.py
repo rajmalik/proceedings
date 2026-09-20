@@ -68,7 +68,7 @@ def _fake_answer_empty():
     )
 
 
-def _capture_request(monkey_filter: str) -> object:
+def _capture_request(monkey_filter: str, preamble: str = "") -> object:
     """Call answer_query with a fake client that records the built request."""
     captured = {}
 
@@ -81,10 +81,12 @@ def _capture_request(monkey_filter: str) -> object:
     search_client._client = lambda pid, loc: _FakeClient()
     search_client._retry = lambda fn, **k: fn()
     try:
-        search_client.answer_query(
-            "test question", "proj", "global", "engine",
-            **({"filter_expr": monkey_filter} if monkey_filter else {}),
-        )
+        kw = {}
+        if monkey_filter:
+            kw["filter_expr"] = monkey_filter
+        if preamble:
+            kw["preamble"] = preamble
+        search_client.answer_query("test question", "proj", "global", "engine", **kw)
     finally:
         search_client._client, search_client._retry = orig_client, orig_retry
     return captured["request"]
@@ -109,6 +111,14 @@ def group_b() -> None:
     req3 = _capture_request(community)
     check("B3 community negation filter applied",
           req3.search_spec.search_params.filter == community)
+
+    # preamble -> AnswerGenerationSpec.prompt_spec.preamble (item 6)
+    req4 = _capture_request("", preamble="Be concise.")
+    check("B4 preamble sets the answer-generation prompt",
+          req4.answer_generation_spec.prompt_spec.preamble == "Be concise.")
+    req5 = _capture_request("")
+    check("B5 no preamble -> empty prompt preamble (stock behavior)",
+          req5.answer_generation_spec.prompt_spec.preamble == "")
 
 
 # ---------------------------------------------------------------------------
