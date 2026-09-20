@@ -76,6 +76,7 @@ jobs:
           python tests/test_moderation.py unit
           python tests/test_official_reference.py unit
           python tests/test_assist_primitives.py
+          python tests/test_assist.py
 
   website:
     needs: changes
