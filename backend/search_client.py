@@ -51,8 +51,13 @@ def _retry(fn, attempts: int = 3, base_delay: float = 0.5):
                 time.sleep(base_delay * (2 ** i))
     raise last
 
-# Fallback message when the datastore yields no grounded answer.
-FALLBACK_MESSAGE = "I don't have that information — please contact the firm directly."
+# Fallback message when the datastore yields no grounded answer. Self-service
+# product (not a firm intake): nudge the user to rephrase / browse, never imply
+# legal advice or a firm to contact.
+FALLBACK_MESSAGE = (
+    "I couldn't find a grounded answer to that in our sources. Try rephrasing your "
+    "question, or browse related community postings."
+)
 
 # Precedence boost (D-039): rank app posts above reddit above the rest. Disabled
 # by default until the `channel` facet + app-channel posts exist in the datastore
@@ -136,6 +141,7 @@ def _reference_to_chunk(ref) -> dict | None:
             "source": source,
             "labels": _labels_from(meta),
             "score": 0.0,  # structured refs carry no relevance score
+            "as_of": str(meta.get("posting_date") or ""),
         }
     # Chunked content (advanced/website mode).
     ci = ref.chunk_info
@@ -148,6 +154,7 @@ def _reference_to_chunk(ref) -> dict | None:
             "source": str(getattr(dm, "uri", "") or getattr(dm, "title", "") or meta.get("post_title", "")),
             "labels": _labels_from(meta),
             "score": float(ci.relevance_score or 0.0),
+            "as_of": str(meta.get("posting_date") or ""),
         }
     # Unstructured docs.
     udi = ref.unstructured_document_info
@@ -162,13 +169,21 @@ def _reference_to_chunk(ref) -> dict | None:
             "source": str(udi.uri or udi.title or udi.document.split("/")[-1]),
             "labels": _labels_from(meta),
             "score": 0.0,
+            "as_of": str(meta.get("posting_date") or ""),
         }
     return None
 
 
-def answer_query(question: str, project_id: str, location: str, engine_id: str, max_results: int = 5) -> dict:
+def answer_query(question: str, project_id: str, location: str, engine_id: str,
+                 max_results: int = 5, filter_expr: str = "") -> dict:
     """
     Ground `question` against the Discovery Engine datastore via the Answer API.
+
+    `filter_expr`, when given, is a Discovery Engine filter applied to retrieval
+    (e.g. 'doc_kind: ANY("gov_news","official_reference")'). Filter only on
+    indexed/filterable fields such as `doc_kind` — never `channel` (unregistered
+    facet → 400). Empty string (default) preserves the pre-existing unfiltered
+    behavior for /api/ask and /api/chat.
 
     Returns the same dict shape as query() in query.py.
     """
@@ -180,6 +195,8 @@ def answer_query(question: str, project_id: str, location: str, engine_id: str, 
     boost = _boost_spec()
     if boost is not None:
         search_params.boost_spec = boost
+    if filter_expr:
+        search_params.filter = filter_expr
 
     request = de.AnswerQueryRequest(
         serving_config=_serving_config(project_id, location, engine_id),

@@ -295,6 +295,7 @@ class SourceInfo(BaseModel):
     source: str
     labels: list[str]
     score: float
+    as_of: str = ""
 
 
 class AskResponse(BaseModel):
