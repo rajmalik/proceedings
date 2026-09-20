@@ -2,6 +2,7 @@
 
 import { Suspense,useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { getActiveUser, userHeaders, DEMO_PICKER_ENABLED } from '@/lib/activeUser'
 import { useRequireUser } from '@/lib/useRequireUser'
 import { useAuth } from '@/contexts/AuthContext'
@@ -53,9 +54,26 @@ const POSTING_TYPE_LABEL: Record<string, string> = {
   general_question: 'General question',
 }
 
+// Discussion/blog mode: `/post?type=discussion` (or `blog`) reuses this same
+// composer to create a Discussions-feed entry — a general topic/how-to write-up
+// NOT tied to one person's case. In that mode the posting carries the
+// `discussion` (or `blog`) controlled-vocab tag, the visa/consulate/stages
+// sections are hidden, and the visa gate is relaxed (a general post needs no
+// personal visa). Everything else — tag-suggest, moderation, indexing — is the
+// same pipeline, so the new post shows up in /discussions automatically.
+const DISCUSSION_KINDS = ['discussion', 'blog'] as const
+type PostKind = (typeof DISCUSSION_KINDS)[number] | ''
+const KIND_LABEL: Record<string, string> = { discussion: 'Discussion', blog: 'Blog / how-to' }
+
 function PostPageInner() {
   useRequireUser()
+  const params = useSearchParams()
   const { user, loading: authLoading } = useAuth()
+  const [kind, setKind] = useState<PostKind>(() => {
+    const t = params.get('type')
+    return t === 'blog' || t === 'discussion' ? t : ''
+  })
+  const isDiscussion = kind === 'discussion' || kind === 'blog'
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [groups, setGroups] = useState<Groups>(EMPTY)
@@ -87,6 +105,15 @@ function PostPageInner() {
     })).catch(() => {})
   }, [])
 
+  // Keep the discussion/blog tag in sync with the selected kind (initial mount
+  // + whenever the user toggles Discussion ⇄ Blog).
+  useEffect(() => {
+    setGroups((g) => {
+      const rest = g.tags.filter((t) => t !== 'discussion' && t !== 'blog')
+      return { ...g, tags: kind ? [...rest, kind] : rest }
+    })
+  }, [kind])
+
   const vocabSets = useMemo(() => ({
     visa: new Set(vocab.visa), consulate: new Set(vocab.consulate), tag: new Set(vocab.tag),
     stage_key: new Set(vocab.stage_key), date_key: new Set(vocab.date_key),
@@ -109,7 +136,19 @@ function PostPageInner() {
   const hasSpecificVisa = (arr: string[]) => arr.some((v) => !GENERIC_VISA_FALLBACKS.has(v))
   const hasVisa = hasSpecificVisa(groups.visa_applying_for) || hasSpecificVisa(groups.current_visa_or_greencard_category)
   const hasOnlyGenericVisa = !hasVisa && (groups.visa_applying_for.length > 0 || groups.current_visa_or_greencard_category.length > 0)
-  const visibleSections = SECTIONS.filter((s) => ALWAYS.includes(s.field) || relevant.includes(s.field))
+  // In discussion/blog mode only the topic-tag sections apply — the visa,
+  // status and consulate sections belong to personal-case postings.
+  const visibleSections = SECTIONS.filter((s) =>
+    isDiscussion ? s.vocab === 'tag' : (ALWAYS.includes(s.field) || relevant.includes(s.field)))
+
+  // Keep exactly one discussion/blog tag on the posting in discussion mode
+  // (swapped when the user toggles kind), and none of them otherwise. Used
+  // wherever `groups` is (re)set — mount, preview result, submit — so the tag
+  // survives a tag-suggest pass that didn't happen to emit it.
+  const ensureKindTags = (tags: string[]): string[] => {
+    const rest = tags.filter((t) => !(DISCUSSION_KINDS as readonly string[]).includes(t))
+    return isDiscussion ? [...rest, kind] : rest
+  }
 
   // Reconcile the message groups against the saved profile (best-effort, only
   // with an active user) and apply the result to the composer. Shared by
@@ -125,13 +164,13 @@ function PostPageInner() {
         })
         if (rr.ok) {
           const a = mergeReconcile(g, st, dt, await rr.json())
-          setGroups(a.groups); setStages(a.stages); setDates(a.dates)
+          setGroups({ ...a.groups, tags: ensureKindTags(a.groups.tags) }); setStages(a.stages); setDates(a.dates)
           setConflicts(a.conflicts); setExplainer(a.explainer); setPrefilled(a.prefilled)
           applied = true
         }
       } catch { /* no active user / reconcile unavailable — post without it */ }
     }
-    if (!applied) { setGroups(g); setStages(st); setDates(dt) }
+    if (!applied) { setGroups({ ...g, tags: ensureKindTags(g.tags) }); setStages(st); setDates(dt) }
     setPreviewed(true)
   }
 
@@ -257,7 +296,8 @@ function PostPageInner() {
         // Send the active user so the backend records the posting↔author link.
         method: 'POST', headers: userHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          title, description, tags: groups, key_stages_or_info: stages, key_dates: dates,
+          title, description, tags: { ...groups, tags: ensureKindTags(groups.tags) },
+          key_stages_or_info: stages, key_dates: dates,
           client_platform: 'web',
         }),
       })
@@ -296,9 +336,11 @@ function PostPageInner() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
-      <h1 className="text-headline-md text-on-surface mb-1">Post a new message</h1>
+      <h1 className="text-headline-md text-on-surface mb-1">{isDiscussion ? 'Start a discussion' : 'Post a new message'}</h1>
       <p className="text-body-md text-on-surface-variant mb-5">
-        Share your immigration experience or question. Preview to see auto-suggested tags, then submit.
+        {isDiscussion
+          ? 'Share a general immigration topic, article, or how-to guide — not tied to one person’s case. Preview to see auto-suggested tags, then submit.'
+          : 'Share your immigration experience or question. Preview to see auto-suggested tags, then submit.'}
       </p>
 
       {error && <div className="card text-error mb-4">{error}</div>}
@@ -306,6 +348,23 @@ function PostPageInner() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* LEFT — compose */}
         <div className="space-y-4">
+          {isDiscussion && (
+            <div>
+              <label className="text-label-md text-on-surface font-medium">Type</label>
+              <div className="flex gap-2 mt-1">
+                {DISCUSSION_KINDS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setKind(k)}
+                    className={kind === k ? 'pill-active' : 'pill'}
+                  >
+                    {KIND_LABEL[k]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <label className="text-label-md text-on-surface font-medium">Title</label>
             <input
@@ -476,14 +535,14 @@ function PostPageInner() {
               )}
 
               <div className="pt-2 border-t border-outline-variant">
-                {!hasVisa && (
+                {!isDiscussion && !hasVisa && (
                   <p className="text-caption text-error mb-2">
                     {hasOnlyGenericVisa
                       ? 'We could tell this is family/employment-based, but need the exact category — please add the specific one below (e.g. IR-1, EB-2) if you know it.'
                       : 'Add at least one visa/status under "Visa/category applying for" or "Current status" to submit.'}
                   </p>
                 )}
-                <button onClick={submit} disabled={submitting || !hasVisa} className="btn-primary w-full disabled:opacity-40">
+                <button onClick={submit} disabled={submitting || (!isDiscussion && !hasVisa)} className="btn-primary w-full disabled:opacity-40">
                   {submitting ? 'Publishing…' : 'Submit posting'}
                 </button>
                 <p className="text-caption text-on-surface-variant mt-2 text-center">
