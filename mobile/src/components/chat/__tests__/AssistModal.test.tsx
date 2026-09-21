@@ -103,6 +103,21 @@ describe('AssistModal', () => {
     expect(screen.getByText('Search on USCIS.gov')).toBeOnTheScreen();
   });
 
+  it('labels a web-tier answer as a live search of official sources', async () => {
+    (assistTurn as jest.Mock).mockResolvedValue(
+      resp({
+        answer: 'Naturalization takes about 8 months.',
+        source_tier: 'web',
+        citations: [{ source: 'https://vertexaisearch/redirect/A', title: 'uscis.gov', as_of: '' }],
+        search_suggestions_html: '<div class="g-chips">Search on Google</div>',
+      })
+    );
+    const screen = await renderScreen(<AssistModal visible onClose={jest.fn()} />);
+    fireEvent.press(screen.getByText('SEND'));
+    expect(await screen.findByText('Naturalization takes about 8 months.')).toBeOnTheScreen();
+    expect(screen.getByText(/live search of official sources/i)).toBeOnTheScreen();
+  });
+
   it('shows a guest-limit nudge on the 429 cap', async () => {
     (assistTurn as jest.Mock).mockRejectedValue(Object.assign(new Error('guest'), { status: 429 }));
     const screen = await renderScreen(<AssistModal visible onClose={jest.fn()} />);

@@ -19,6 +19,7 @@ import Animated, {
   interpolate,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 import { colors, typography, spacing, borderRadius, shadows } from '../../constants/theme';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -234,7 +235,30 @@ export function AssistModal({ visible, onClose }: AssistModalProps) {
         )}
 
         {d.source_tier === 'web' && (
-          <Text style={styles.subtle}>From a live search of official sources.</Text>
+          <View style={styles.block}>
+            <Text style={styles.subtle}>From a live search of official sources.</Text>
+            {!!d.search_suggestions_html && (
+              // Google's grounding terms require rendering the Search-Suggestion
+              // chips as-is. Taps open the query in the system browser.
+              <View style={styles.chipsWrap}>
+                <WebView
+                  originWhitelist={['*']}
+                  source={{
+                    html: `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;background:transparent">${d.search_suggestions_html}</body></html>`,
+                  }}
+                  style={styles.chips}
+                  scrollEnabled={false}
+                  onShouldStartLoadWithRequest={(req) => {
+                    if (req.url && req.url !== 'about:blank' && !req.url.startsWith('data:')) {
+                      Linking.openURL(req.url);
+                      return false;
+                    }
+                    return true;
+                  }}
+                />
+              </View>
+            )}
+          </View>
         )}
 
         {/* Timeline cohort */}
@@ -459,6 +483,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   secondaryPillText: { ...typography.caption, color: colors.onSurface },
+  chipsWrap: { height: 52, marginTop: spacing.base },
+  chips: { flex: 1, backgroundColor: 'transparent' },
   searchFurther: {
     marginTop: spacing.sm,
     paddingTop: spacing.sm,
