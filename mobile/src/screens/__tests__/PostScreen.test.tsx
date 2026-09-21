@@ -181,3 +181,29 @@ describe('PostScreen — discussion/blog mode (?kind=discussion|blog)', () => {
     expect(tags.tags).not.toContain('discussion');
   });
 });
+
+// AI-Assist post handoff: the assistant stashes a post_draft and routes here
+// with it as a route param. The composer prefills from it and jumps straight to
+// the tags panel.
+describe('PostScreen — AI Assist draft handoff (assistDraft param)', () => {
+  beforeEach(() => { jest.clearAllMocks(); mockRouteParams = {}; });
+
+  it('prefills title/description/tags and shows the tags panel (no Preview needed)', async () => {
+    mockRouteParams = {
+      assistDraft: {
+        title: 'RFE on my H-1B extension',
+        description: 'I filed an H-1B extension and just received a Request for Evidence.',
+        groups: { ...EMPTY_GROUPS, current_visa_or_greencard_category: ['H-1B'] },
+        key_stages_or_info: {},
+        key_dates: {},
+      },
+    };
+    const screen = await renderPostScreen();
+    // assistDraft sets previewed=true -> the tags panel is shown immediately.
+    expect(await screen.findByText('Review Tags')).toBeOnTheScreen();
+    expect(screen.getByDisplayValue('RFE on my H-1B extension')).toBeOnTheScreen();
+    // The drafted visa tag is prefilled -> Submit is enabled (has a visa).
+    expect(screen.getByText('H-1B')).toBeOnTheScreen();
+    expect(screen.queryByText(/Add at least one visa\/status/i)).toBeNull();
+  });
+});

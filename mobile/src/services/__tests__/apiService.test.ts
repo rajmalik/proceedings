@@ -403,3 +403,20 @@ describe('apiService.getAssistSessionId', () => {
     expect(a).toMatch(/^sess-/);
   });
 });
+
+import { createPosting } from '../apiService';
+
+// Regression: createPosting used to omit the identity headers, so every mobile
+// post 401'd against the hardened backend (which now requires a signed-in
+// author). It must carry the caller identity like the other authed calls.
+describe('apiService.createPosting — sends the caller identity (auth fix)', () => {
+  beforeEach(async () => { await setActiveUserId('demo-arjun'); mockOk({ case_id: 'c1', author_handle: 'anon' }); });
+  afterEach(async () => { await setActiveUserId(null); });
+
+  it('attaches X-User-Id to the POST /api/postings call', async () => {
+    await createPosting('a title', 'a description', {} as never, {}, {}, 'ios');
+    expect(url()).toContain('/api/postings');
+    expect(init().method).toBe('POST');
+    expect(headers()['X-User-Id']).toBe('demo-arjun');
+  });
+});

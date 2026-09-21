@@ -57,6 +57,14 @@ describe('MainNavigator — screen registration', () => {
     expect(onboarding.filter((s) => s.startsWith('Group'))).toEqual([]);
   });
 
+  it('registers Post in every stack that launches it (Home FAB + Discussions "Start a discussion")', () => {
+    // DiscussionsScreen's "Start a discussion" does navigate('Post', { kind }),
+    // so Post must live in the Discussions stack too — else it throws at runtime.
+    for (const name of ['HomeStack', 'DiscussionsStack']) {
+      expect(stacks()[name] || []).toContain('Post');
+    }
+  });
+
   it('never registers the same screen name twice in one stack', () => {
     // A duplicate silently shadows the first registration.
     const dupes = Object.entries(stacks())
