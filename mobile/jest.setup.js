@@ -79,3 +79,7 @@ jest.mock('expo-apple-authentication', () => {
     AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
   };
 });
+
+// react-native-webview renders native WebView — stub it under jest (used by the
+// AI Assist web-tier Google search-suggestion chips).
+jest.mock('react-native-webview', () => ({ WebView: () => null }));

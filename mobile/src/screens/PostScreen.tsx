@@ -12,7 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '../constants/theme';
@@ -28,6 +28,7 @@ import {
   TagVocab,
   PostingGroups,
   ReconcileResult,
+  AssistPostDraft,
 } from '../services/apiService';
 
 const EMPTY_GROUPS: PostingGroups = {
@@ -45,6 +46,14 @@ const POSTING_TYPE_LABEL: Record<string, string> = {
   experience: 'Experience share',
   general_question: 'General question',
 };
+
+// Discussion/blog mode (website parity: /post?type=discussion|blog). A general
+// topic/how-to write-up NOT tied to the author's own case — it carries the
+// `discussion`/`blog` tag, hides the visa/status/consulate sections, and is
+// exempt from the visa gate (and, server-side, from the author-profile gate).
+type PostKind = 'discussion' | 'blog' | '';
+const DISCUSSION_KINDS = ['discussion', 'blog'] as const;
+const KIND_LABEL: Record<string, string> = { discussion: 'Discussion', blog: 'Blog / how-to' };
 
 type TypeaheadOption = { value: string; label: string };
 
@@ -105,6 +114,15 @@ function TagTypeahead({
 
 export function PostScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const route = useRoute<
+    RouteProp<Record<string, { kind?: string; assistDraft?: AssistPostDraft } | undefined>, string>
+  >();
+  const routeKind = route.params?.kind;
+  const assistDraft = route.params?.assistDraft;
+  const [kind, setKind] = useState<PostKind>(
+    routeKind === 'blog' ? 'blog' : routeKind === 'discussion' ? 'discussion' : ''
+  );
+  const isDiscussion = kind === 'discussion' || kind === 'blog';
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [groups, setGroups] = useState<PostingGroups>(EMPTY_GROUPS);
@@ -138,11 +156,20 @@ export function PostScreen() {
   // Draft persistence (audit P0): a long structured post used to be lost entirely
   // on crash/background-kill. Autosave the editable fields (per user) and restore
   // them on mount; cleared on successful publish or reset.
-  const draftKey = useMemo(() => `proceedings_post_draft_${getActiveUserId() ?? 'anon'}`, []);
+  const draftKey = useMemo(
+    () => `proceedings_post_draft_${isDiscussion ? 'discussion' : 'experience'}_${getActiveUserId() ?? 'anon'}`,
+    [isDiscussion]
+  );
   const hydrated = useRef(false);
 
   useEffect(() => {
     (async () => {
+      // An AI-Assist handoff draft (route param) wins over the crash-recovery
+      // draft — don't let the async AsyncStorage read clobber it.
+      if (assistDraft) {
+        hydrated.current = true;
+        return;
+      }
       try {
         const raw = await AsyncStorage.getItem(draftKey);
         if (raw) {
@@ -189,6 +216,31 @@ export function PostScreen() {
     AsyncStorage.removeItem(draftKey).catch(() => {});
   };
 
+  // AI-Assist handoff: prefill from the stashed draft (the assistant's
+  // post_draft) and jump straight to the tags panel. Runs once on arrival.
+  useEffect(() => {
+    if (!assistDraft) return;
+    setTitle(assistDraft.title || '');
+    setDescription(assistDraft.description || '');
+    const g: PostingGroups = { ...EMPTY_GROUPS, ...(assistDraft.groups || {}) };
+    setGroups({ ...g, tags: ensureKindTags(g.tags) });
+    setStages(assistDraft.key_stages_or_info || {});
+    setDates(assistDraft.key_dates || {});
+    setPostingType('');
+    setPreviewed(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assistDraft]);
+
+  // Keep the discussion/blog tag in sync with the selected kind (initial mount +
+  // when the user toggles Discussion ⇄ Blog).
+  useEffect(() => {
+    if (!isDiscussion) return;
+    setGroups((g) => {
+      const rest = g.tags.filter((t) => t !== 'discussion' && t !== 'blog');
+      return { ...g, tags: [...rest, kind] };
+    });
+  }, [kind, isDiscussion]);
+
   const consulateByCode = useMemo(
     () => new Map(vocab?.consulate_options?.map((o) => [o.code, o.label]) || []),
     [vocab]
@@ -221,6 +273,15 @@ export function PostScreen() {
     hasSpecificVisa(groups.visa_applying_for) || hasSpecificVisa(groups.current_visa_or_greencard_category);
   const hasOnlyGenericVisa =
     !hasVisa && (groups.visa_applying_for.length > 0 || groups.current_visa_or_greencard_category.length > 0);
+
+  // Keep exactly one discussion/blog tag on the posting in discussion mode
+  // (swapped when the user toggles kind), and none otherwise. Applied wherever
+  // `groups` is (re)set — mount, preview result, submit — so the tag survives a
+  // tag-suggest pass that didn't happen to emit it.
+  const ensureKindTags = (tags: string[]): string[] => {
+    const rest = tags.filter((t) => t !== 'discussion' && t !== 'blog');
+    return isDiscussion ? [...rest, kind] : rest;
+  };
 
   // Add a validated value (already from the vocab list) to a tag section.
   const addToGroup = (field: keyof PostingGroups, value: string) => {
@@ -291,7 +352,7 @@ export function PostScreen() {
             visa_applying_for: (m.visa_applying_for as string[]) ?? g.visa_applying_for,
             primary_consulate: (m.primary_consulate as string) ?? g.primary_consulate,
             consulates: (m.consulates as string[]) ?? g.consulates,
-            tags: g.tags,
+            tags: ensureKindTags(g.tags),
             concerns_or_questions_tags: g.concerns_or_questions_tags,
           });
           setStages((m.key_stages_or_info as Record<string, string>) ?? st);
@@ -305,7 +366,7 @@ export function PostScreen() {
         }
       }
       if (!applied) {
-        setGroups(g);
+        setGroups({ ...g, tags: ensureKindTags(g.tags) });
         setStages(st);
         setDates(dt);
       }
@@ -361,7 +422,7 @@ export function PostScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!hasVisa) {
+    if (!isDiscussion && !hasVisa) {
       Alert.alert(
         'Missing Info',
         hasOnlyGenericVisa
@@ -373,7 +434,8 @@ export function PostScreen() {
     setSubmitting(true);
     setError('');
     try {
-      const result = await createPosting(title, description, groups, stages, dates, Platform.OS);
+      const payloadGroups = { ...groups, tags: ensureKindTags(groups.tags) };
+      const result = await createPosting(title, description, payloadGroups, stages, dates, Platform.OS);
       clearDraft();
       setDone(result);
     } catch (e) {
@@ -388,7 +450,7 @@ export function PostScreen() {
     setDone(null);
     setTitle('');
     setDescription('');
-    setGroups(EMPTY_GROUPS);
+    setGroups(isDiscussion ? { ...EMPTY_GROUPS, tags: [kind] } : EMPTY_GROUPS);
     setStages({});
     setDates({});
     setPreviewed(false);
@@ -431,7 +493,7 @@ export function PostScreen() {
   return (
     <View style={styles.container}>
       <Header
-        title="New Post"
+        title={isDiscussion ? 'Start a Discussion' : 'New Post'}
         showLogo={false}
         transparent
         showBack
@@ -444,8 +506,30 @@ export function PostScreen() {
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           {/* Subtitle */}
           <Text style={styles.pageSubtitle}>
-            Share your immigration experience or question. Preview to see auto-suggested tags.
+            {isDiscussion
+              ? 'Share a general immigration topic, article, or how-to guide — not tied to one person’s case. Preview to see auto-suggested tags.'
+              : 'Share your immigration experience or question. Preview to see auto-suggested tags.'}
           </Text>
+
+          {/* Type toggle — discussion vs blog (discussion mode only) */}
+          {isDiscussion && (
+            <View style={styles.field}>
+              <Text style={styles.label}>Type</Text>
+              <View style={styles.kindRow}>
+                {DISCUSSION_KINDS.map((k) => (
+                  <TouchableOpacity
+                    key={k}
+                    style={[styles.kindChip, kind === k && styles.kindChipActive]}
+                    onPress={() => setKind(k)}
+                  >
+                    <Text style={[styles.kindChipText, kind === k && styles.kindChipTextActive]}>
+                      {KIND_LABEL[k]}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
           {error ? (
             <View style={styles.errorCard}>
@@ -534,6 +618,10 @@ export function PostScreen() {
                 </View>
               )}
 
+              {/* Visa / status / consulate sections — personal-case only; hidden
+                  for a discussion/blog, which isn't tied to the author's case. */}
+              {!isDiscussion && (
+              <>
               {/* Visa applying for */}
               <View style={styles.tagSection}>
                 <Text style={styles.tagSectionLabel}>Visa / category applying for</Text>
@@ -617,6 +705,8 @@ export function PostScreen() {
                   onAdd={(c) => addToGroup('consulates', c)}
                 />
               </View>
+              </>
+              )}
 
               {/* Background tags */}
               <View style={styles.tagSection}>
@@ -754,7 +844,7 @@ export function PostScreen() {
 
               {/* Submit */}
               <View style={styles.submitSection}>
-                {!hasVisa && (
+                {!isDiscussion && !hasVisa && (
                   <Text style={styles.warningText}>
                     {hasOnlyGenericVisa
                       ? 'We could tell this is family/employment-based, but need the exact category — please add the specific one below (e.g. IR-1, EB-2) if you know it.'
@@ -762,9 +852,9 @@ export function PostScreen() {
                   </Text>
                 )}
                 <TouchableOpacity
-                  style={[styles.submitButton, (submitting || !hasVisa) && styles.buttonDisabled]}
+                  style={[styles.submitButton, (submitting || (!isDiscussion && !hasVisa)) && styles.buttonDisabled]}
                   onPress={handleSubmit}
-                  disabled={submitting || !hasVisa}
+                  disabled={submitting || (!isDiscussion && !hasVisa)}
                 >
                   <Text style={styles.submitButtonText}>
                     {submitting ? 'Publishing…' : 'Submit Posting'}
@@ -863,6 +953,21 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.5,
   },
+  kindRow: { flexDirection: 'row', gap: spacing.base },
+  kindChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceContainerLowest,
+  },
+  kindChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryContainer,
+  },
+  kindChipText: { fontSize: 13, color: colors.onSurfaceVariant },
+  kindChipTextActive: { color: colors.onPrimaryContainer, fontWeight: '600' },
   prefilledNote: { fontSize: 12, color: colors.onSurfaceVariant, marginBottom: spacing.base },
   conflictCard: {
     backgroundColor: colors.surfaceContainerLow,

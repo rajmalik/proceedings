@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '../constants/theme';
@@ -153,6 +153,25 @@ const TAB_BAR_CLEARANCE = 96;
 
 export function FindScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  // Deep-link params from the AI Assist timeline / find-similar handoffs.
+  const route = useRoute<
+    RouteProp<
+      Record<
+        string,
+        | {
+            type?: string;
+            processing_type?: string;
+            eligibility?: string;
+            filing_month?: string;
+            filing_year?: string;
+            q?: string;
+            visa?: string;
+          }
+        | undefined
+      >,
+      string
+    >
+  >();
   const [tab, setTab] = useState<'find' | 'browse'>('browse');
   // Within the find tab: searching, or filling in the create form? A mode
   // rather than a route so the criteria you searched with carry into the
@@ -368,6 +387,45 @@ export function FindScreen() {
   function removeScopeValue(key: string) {
     setScopeValues((prev) => { const n = { ...prev }; delete n[key]; return n; });
   }
+
+  // AI-Assist find-similar handoff: /find?type=regular&q=…&visa=… -> Regular
+  // find tab, prefill the situation text + current-status tag. Runs once.
+  const regularPrefilled = useRef(false);
+  useEffect(() => {
+    const p = route.params;
+    if (regularPrefilled.current || p?.type !== 'regular') return;
+    regularPrefilled.current = true;
+    setTab('find');
+    setGroupType('regular');
+    if (p.q) setDescription(p.q);
+    if (p.visa) addTag('current_visa_or_greencard_category', p.visa);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params]);
+
+  // AI-Assist timeline handoff: /find?type=timeline&processing_type=…&eligibility=…
+  // &filing_month=…&filing_year=… -> Timeline find tab with those prefilled.
+  // Deferred until the processing-type vocab has loaded so select* resolve.
+  const timelinePrefilled = useRef(false);
+  useEffect(() => {
+    const p = route.params;
+    if (timelinePrefilled.current || p?.type !== 'timeline') return;
+    if (!vocab?.processing_types?.length) return; // wait for the vocab
+    timelinePrefilled.current = true;
+    setTab('find');
+    setGroupType('timeline');
+    if (p.processing_type) {
+      selectProcessingType(p.processing_type);
+      if (p.eligibility) selectEligibility(p.eligibility);
+    }
+    if (p.filing_month || p.filing_year) {
+      setScopeValues((prev) => ({
+        ...prev,
+        ...(p.filing_month ? { filing_month: p.filing_month } : {}),
+        ...(p.filing_year ? { filing_year: p.filing_year } : {}),
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params, vocab?.processing_types]);
 
   function criteriaFromPanel(): Criteria {
     const byField = (f: TagField) => tags.filter((t) => t.field === f).map((t) => t.code);

@@ -18,6 +18,9 @@ async function renderSearch(navigation: { navigate: jest.Mock } = { navigate: je
 }
 
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ isBlocked: () => false }) }));
+// Flag ON so the "Ask AI/Post" launcher renders; openAssist stubbed.
+jest.mock('../../constants/flags', () => ({ AI_ASSIST_ENABLED: true }));
+jest.mock('../../utils/assistLauncher', () => ({ openAssist: jest.fn() }));
 jest.mock('../../services/apiService', () => {
   const actual = jest.requireActual('../../services/apiService');
   return {
@@ -221,5 +224,14 @@ describe('SearchScreen — never sends Advanced Search\'s News/Cutoff params', (
     const [, opts] = (searchPostings as jest.Mock).mock.calls[1];
     expect(opts.includeNews).toBeUndefined();
     expect(opts.maxAgeDays).toBeUndefined();
+  });
+});
+
+describe('SearchScreen — Ask AI/Post launcher (AI_ASSIST_ENABLED)', () => {
+  it('renders the launcher and opens the assist modal on press', async () => {
+    const { openAssist } = require('../../utils/assistLauncher');
+    const s = await renderSearch();
+    await fireEvent.press(s.getByText('Ask AI / Post'));
+    expect(openAssist).toHaveBeenCalled();
   });
 });

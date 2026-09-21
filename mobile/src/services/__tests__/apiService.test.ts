@@ -1,4 +1,10 @@
-import { searchPostings } from '../apiService';
+import { searchPostings, assistTurn, getAssistSessionId } from '../apiService';
+
+// assistTurn gates on AI consent (like askQuestion/onboard) — no-op it here.
+jest.mock('../aiConsent', () => ({
+  assertAIConsent: jest.fn(),
+  AIConsentError: class AIConsentError extends Error {},
+}));
 
 // Regression: searchPostings used to default an empty `q` to the literal
 // filler string "immigration visa experience" before building the request
@@ -354,5 +360,63 @@ describe('apiService — requiredAttributeKeys mirrors posting.required_keys()',
 
   it('agrees with the backend on the checkbox literal', () => {
     expect(CHECKBOX_ON).toBe('yes');
+  });
+});
+
+// AI Assist client (POST /api/assist). Same direct (non-mocked apiService) unit
+// coverage as searchPostings — mocks fetch, exercises the real request builder.
+describe('apiService.assistTurn', () => {
+  it('POSTs message/history/session_id/force_intent to /api/assist', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ intent: 'answer-gov', answer: 'hi', source_tier: 'gov' }),
+    })) as unknown as typeof fetch;
+
+    await assistTurn('how long is EAD?', [{ role: 'user', content: 'hi', intent: '' }], 'sess-1', 'post');
+
+    const [url, opts] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(String(url)).toContain('/api/assist');
+    const body = JSON.parse((opts as { body: string }).body);
+    expect(body.message).toBe('how long is EAD?');
+    expect(body.session_id).toBe('sess-1');
+    expect(body.force_intent).toBe('post');
+    expect(body.history).toHaveLength(1);
+  });
+
+  it('throws an Error carrying .status on the 429 guest cap', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({ detail: 'guest limit' }),
+    })) as unknown as typeof fetch;
+
+    await expect(assistTurn('x', [], 'sess-1')).rejects.toMatchObject({ status: 429 });
+  });
+});
+
+describe('apiService.getAssistSessionId', () => {
+  it('returns a stable sess- id across calls', async () => {
+    const a = await getAssistSessionId();
+    const b = await getAssistSessionId();
+    expect(a).toBe(b);
+    expect(a).toMatch(/^sess-/);
+  });
+});
+
+import { createPosting } from '../apiService';
+
+// Regression: createPosting used to omit the identity headers, so every mobile
+// post 401'd against the hardened backend (which now requires a signed-in
+// author). It must carry the caller identity like the other authed calls.
+describe('apiService.createPosting — sends the caller identity (auth fix)', () => {
+  beforeEach(async () => { await setActiveUserId('demo-arjun'); mockOk({ case_id: 'c1', author_handle: 'anon' }); });
+  afterEach(async () => { await setActiveUserId(null); });
+
+  it('attaches X-User-Id to the POST /api/postings call', async () => {
+    await createPosting('a title', 'a description', {} as never, {}, {}, 'ios');
+    expect(url()).toContain('/api/postings');
+    expect(init().method).toBe('POST');
+    expect(headers()['X-User-Id']).toBe('demo-arjun');
   });
 });

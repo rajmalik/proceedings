@@ -18,6 +18,7 @@ import {
   Lora_700Bold,
 } from '@expo-google-fonts/lora';
 import { MainNavigator } from './src/navigation/MainNavigator';
+import { navigationRef } from './src/navigation/navigationRef';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { AIConsentProvider } from './src/contexts/AIConsentContext';
 import { colors } from './src/constants/theme';
@@ -50,7 +51,7 @@ export default function App() {
       <SafeAreaProvider>
         <AuthProvider>
           <AIConsentProvider>
-            <NavigationContainer>
+            <NavigationContainer ref={navigationRef}>
               <StatusBar style="dark" />
               <MainNavigator />
             </NavigationContainer>
