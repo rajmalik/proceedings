@@ -103,15 +103,19 @@ def post_message(db, group_id: str, user_id: str, text: str) -> dict:
         raise ValueError("A user id is required to post.")
     _require_member(db, group_id, user_id)   # KeyError → 404, PermissionError → 403
     clean = _clean_text(text)                # ValueError → 422
+    now = _now_iso()
     doc = {
         "author_uid": user_id,
-        "author_handle": profile.username_for(user_id),
+        "author_handle": profile.handle_for(db, user_id),
         "text": clean,
-        "created_at": _now_iso(),
+        "created_at": now,
         "deleted": False,
     }
     ref = _messages_ref(db, group_id).document()
     ref.set(doc)
+    # Drives the group's "last activity" metadata — every post is activity,
+    # not just joins (matching.py's join_group/invite_member bump it too).
+    db.collection("groups").document(group_id).update({"last_activity_at": now})
     return _message_view({**doc, "id": ref.id}, user_id)
 
 

@@ -83,19 +83,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // Cache the bearer token BEFORE exposing `user`/`loading` to consumers.
+        // Previously this happened via the separate onIdTokenChanged listener
+        // below, which fetches the token asynchronously — leaving a window
+        // where `user` was already truthy (pages start firing authenticated
+        // requests the moment they see it) but userHeaders() had no token yet
+        // to attach, so the request went out unauthenticated and 401'd. Only
+        // surfaced once real users' pages started actually loading data on
+        // mount instead of silently never firing (see features/ui-changes-1
+        // follow-up) — not new to this fix, just newly exercised.
+        try {
+          setIdToken(await firebaseUser.getIdToken());
+        } catch {
+          setIdToken(null);
+        }
         // Mutual exclusivity: a real session wins, so drop any stale demo-user
         // selection that could otherwise shadow/race the Firebase uid.
         clearActiveUser();
         void registerBackendUser(firebaseUser);
+      } else {
+        setIdToken(null);
       }
+      setUser(firebaseUser);
+      setLoading(false);
     });
 
-    // Keep the cached ID token fresh (fires on sign-in/out AND hourly refresh) so
-    // userHeaders() can attach the Bearer token synchronously.
+    // Keeps the cached token fresh on subsequent rotation (hourly refresh) —
+    // the initial cache is now handled above, before `user` is ever exposed.
     const unsubToken = onIdTokenChanged(auth, (u) => {
       if (u) void u.getIdToken().then(setIdToken).catch(() => setIdToken(null));
       else setIdToken(null);

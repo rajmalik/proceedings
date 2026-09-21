@@ -80,6 +80,47 @@ def group_a_pure() -> None:
     v_del = I._reply_view(deleted_doc, {"up": 0, "down": 0, "score": 0}, 0, "x")
     check("A10 deleted reply hides body", v_del["deleted"] is True and v_del["body"] == "")
 
+    # parent_reply_id round-trips through the client view (empty = top-level)
+    v_thread = I._reply_view({**doc, "parent_reply_id": "rp-1"}, {"up": 0, "down": 0, "score": 0}, 0, "x")
+    check("A11 _reply_view carries parent_reply_id", v_thread["parent_reply_id"] == "rp-1")
+    check("A12 _reply_view defaults parent_reply_id to '' (top-level)",
+          I._reply_view(doc, {"up": 0, "down": 0, "score": 0}, 0, "x")["parent_reply_id"] == "")
+
+
+# ---------------------------------------------------------------------------
+# A3 — _prune_deleted tombstone logic (pure, no network): a deleted reply is
+#      dropped UNLESS it still has a live descendant, in which case it's kept as
+#      a tombstone so the thread beneath it isn't orphaned.
+# ---------------------------------------------------------------------------
+
+def group_a3_prune_deleted() -> None:
+    print("\nA3 — _prune_deleted tombstone logic (pure, no network)")
+
+    def d(i: str, parent: str = "", deleted: bool = False) -> dict:
+        return {"id": i, "parent_reply_id": parent, "deleted": deleted}
+
+    def kept(docs: list[dict]) -> set[str]:
+        return {x["id"] for x in I._prune_deleted(docs)}
+
+    r = kept([d("a"), d("b", deleted=True)])
+    check("A3.1 live kept, childless-deleted dropped", r == {"a"}, str(r))
+
+    r = kept([d("p", deleted=True), d("c", parent="p")])
+    check("A3.2 deleted parent w/ live child kept as tombstone", r == {"p", "c"}, str(r))
+
+    r = kept([d("p", deleted=True), d("c", parent="p", deleted=True)])
+    check("A3.3 fully-deleted subtree dropped", r == set(), str(r))
+
+    r = kept([d("a", deleted=True), d("b", parent="a", deleted=True), d("c", parent="b")])
+    check("A3.4 deleted ancestors of a live reply all retained", r == {"a", "b", "c"}, str(r))
+
+    r = kept([d("root", deleted=True), d("live", parent="root"),
+              d("dead", parent="root", deleted=True)])
+    check("A3.5 mixed branches: keep root+live, drop dead leaf", r == {"root", "live"}, str(r))
+
+    r = kept([d("x"), d("y", parent="x")])
+    check("A3.6 nothing deleted → everything kept", r == {"x", "y"}, str(r))
+
 
 # ---------------------------------------------------------------------------
 # A2 — list_user_replies query logic, exercised against a fake Firestore
@@ -293,6 +334,69 @@ def group_b_firestore() -> None:
         st = I.vote_state(db, [parent, r3["id"]], viewer_id=user_b)
         check("B20 vote_state batch per-id", st[parent]["up"] == 2 and st[r3["id"]]["your_vote"] == -1, str(st))
 
+        # --- threading: reply-to-reply round-trips parent_reply_id ---
+        rt = I.add_reply(db, parent, "nested under r3", user_b, "mei-f1", parent_reply_id=r3["id"])
+        created.append(rt["id"])
+        check("B21 reply-to-reply stores parent_reply_id", rt["parent_reply_id"] == r3["id"])
+        threaded = {r["id"]: r for r in I.list_replies(db, parent, viewer_id=user_a)}
+        check("B22 parent_reply_id round-trips through list_replies",
+              threaded.get(rt["id"], {}).get("parent_reply_id") == r3["id"])
+        check("B23 top-level reply keeps empty parent_reply_id",
+              threaded.get(r3["id"], {}).get("parent_reply_id") == "")
+
+        # --- unknown parent_reply_id rejected ---
+        try:
+            I.add_reply(db, parent, "ghost parent", user_a, "arjun-h1b", parent_reply_id="does-not-exist")
+            check("B24 unknown parent_reply_id rejected", False, "no raise")
+        except ValueError:
+            check("B24 unknown parent_reply_id rejected (ValueError)", True)
+
+        # --- cross-posting attachment rejected (parent reply on a different posting) ---
+        other_parent = f"test-posting-{secrets.token_hex(4)}"
+        try:
+            ro = I.add_reply(db, other_parent, "on another posting", user_a, "arjun-h1b")
+            created.append(ro["id"])
+            try:
+                I.add_reply(db, parent, "steal", user_a, "arjun-h1b", parent_reply_id=ro["id"])
+                check("B25 cross-posting parent_reply_id rejected", False, "no raise")
+            except ValueError:
+                check("B25 cross-posting parent_reply_id rejected (ValueError)", True)
+        finally:
+            _hard_cleanup(db, other_parent, [])
+
+        # --- depth ceiling: monkeypatch low so we don't create 40 live docs.
+        # With MAX=3, replies at depths 0..3 are accepted; a reply beneath depth 3
+        # (new depth 4) is rejected. ---
+        orig_max = I.MAX_REPLY_DEPTH
+        I.MAX_REPLY_DEPTH = 3
+        try:
+            prev = ""  # "" = top-level
+            chain_ids: list[str] = []
+            for i in range(4):  # depths 0,1,2,3
+                rr = I.add_reply(db, parent, f"chain {i}", user_a, "arjun-h1b", parent_reply_id=prev)
+                created.append(rr["id"])
+                chain_ids.append(rr["id"])
+                prev = rr["id"]
+            check("B26 nesting up to the ceiling accepted (depths 0..3)", len(chain_ids) == 4)
+            try:
+                I.add_reply(db, parent, "too deep", user_a, "arjun-h1b", parent_reply_id=prev)
+                check("B27 nesting past the ceiling rejected", False, "no raise")
+            except ValueError:
+                check("B27 nesting past the ceiling rejected (ValueError)", True)
+        finally:
+            I.MAX_REPLY_DEPTH = orig_max
+
+        # --- tombstone: deleting a mid-thread reply keeps a blank stub so its
+        # live descendants aren't orphaned; a childless deleted reply is dropped
+        # (already covered by B13). ---
+        I.delete_reply(db, chain_ids[1], user_a)  # chain_ids[1] has descendants [2],[3]
+        tomb = {r["id"]: r for r in I.list_replies(db, parent, viewer_id=user_a)}
+        check("B28 deleted mid-thread reply kept as blank tombstone",
+              chain_ids[1] in tomb and tomb[chain_ids[1]]["deleted"] is True
+              and tomb[chain_ids[1]]["body"] == "", str(tomb.get(chain_ids[1])))
+        check("B29 live descendants of a deleted reply still listed",
+              chain_ids[2] in tomb and chain_ids[3] in tomb)
+
     finally:
         _hard_cleanup(db, parent, created)
         print("  cleaned up test docs")
@@ -371,6 +475,25 @@ def group_c_api() -> None:
                   c.delete(f"/api/postings/{parent}/replies/no-such-id", headers=A).status_code == 404)
             check("C15 DELETE author → 200",
                   c.delete(f"/api/postings/{parent}/replies/{rid}", headers=A).status_code == 200)
+
+            # threaded reply via API: parent_reply_id round-trips on the ReplyCard
+            top = c.post(f"/api/postings/{parent}/replies", json={"body": "top"}, headers=A).json()
+            tid = top.get("id", "")
+            if tid:
+                created.append(tid)
+            child = c.post(f"/api/postings/{parent}/replies",
+                           json={"body": "child", "parent_reply_id": tid}, headers=M)
+            cj = child.json()
+            if cj.get("id"):
+                created.append(cj["id"])
+            check("C16 POST reply with parent_reply_id round-trips",
+                  child.status_code == 200 and cj.get("parent_reply_id") == tid, str(cj))
+
+            # cross-posting parent_reply_id (points at a reply on a different posting) → 422
+            other = f"test-posting-api-{secrets.token_hex(4)}"
+            bad = c.post(f"/api/postings/{other}/replies",
+                         json={"body": "x", "parent_reply_id": tid}, headers=A)
+            check("C17 cross-posting parent_reply_id → 422", bad.status_code == 422, f"status={bad.status_code}")
     finally:
         _hard_cleanup(db, parent, created)
         print("  cleaned up API test docs")
@@ -385,6 +508,7 @@ def main() -> int:
 
     group_a_pure()
     group_a2_user_replies()
+    group_a3_prune_deleted()
     if only in ("all", "integration"):
         group_b_firestore()
         group_c_api()

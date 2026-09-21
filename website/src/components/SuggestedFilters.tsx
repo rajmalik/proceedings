@@ -19,7 +19,7 @@ export default function SuggestedFilters({
 }: {
   groups?: SuggestedFilterGroup[]
   selected: Set<string>
-  onToggle: (field: string, code: string) => void
+  onToggle: (field: string, code: string, label?: string) => void
   title?: string
 }) {
   if (!groups || groups.length === 0) return null
@@ -39,7 +39,7 @@ export default function SuggestedFilters({
               return (
                 <button
                   key={id}
-                  onClick={() => onToggle(g.field, v.code)}
+                  onClick={() => onToggle(g.field, v.code, v.label)}
                   className={on ? 'pill-active' : 'pill'}
                   title={`${v.code}`}
                 >

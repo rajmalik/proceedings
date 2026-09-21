@@ -50,7 +50,7 @@ function timeAgo(iso: string): string {
   return new Date(t).toLocaleDateString();
 }
 
-const POLL_MS = 4000;
+const POLL_MS = 1500;
 
 export function GroupChat({ groupId }: GroupChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);

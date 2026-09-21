@@ -20,6 +20,11 @@ export async function POST(request: NextRequest) {
         criteria_text: body.criteria_text || '',
         criteria: body.criteria || {},
         members: body.members || [],
+        group_type: body.group_type || '',
+        description: body.description || '',
+        validity: body.validity || '',
+        values: body.values || {},
+        notes: body.notes || '',
       }),
     })
     const data = await res.json()

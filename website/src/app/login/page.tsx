@@ -1,13 +1,22 @@
 'use client';
 
-import { useState, FormEvent, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense,useState, FormEvent, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { safeReturnPath } from '@/lib/useRequireUser';
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading, signInWithEmail, signInWithGoogle } = useAuth();
+
+  // Where to land after signing in. useRequireUser() puts the page the visitor
+  // was actually trying to reach here — without it a shared group link dumped
+  // the recipient on the home page with no way back to the group.
+  // safeReturnPath() rejects anything that isn't a path on this origin, so a
+  // crafted ?next= can't turn the login page into an open redirect.
+  const returnTo = safeReturnPath(searchParams?.get('next')) || '/';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,9 +27,9 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (!loading && user) {
-      router.push('/');
+      router.push(returnTo);
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, returnTo]);
 
   const handleEmailSignIn = async (e: FormEvent) => {
     e.preventDefault();
@@ -29,7 +38,7 @@ export default function LoginPage() {
 
     try {
       await signInWithEmail(email, password);
-      router.push('/');
+      router.push(returnTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in');
     } finally {
@@ -43,7 +52,7 @@ export default function LoginPage() {
 
     try {
       await signInWithGoogle();
-      router.push('/');
+      router.push(returnTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in with Google');
     } finally {
@@ -183,4 +192,19 @@ export default function LoginPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * This page reads the query string — LoginPageInner (or a hook it calls, e.g.
+ * useRequireUser's ?next= round-trip) uses useSearchParams(). Next 14 refuses
+ * to prerender such a page unless it sits under a Suspense boundary, and
+ * fails the PRODUCTION build with "useSearchParams() should be wrapped in a
+ * suspense boundary" — an error `next dev`, tsc and vitest never surface.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
+  )
 }

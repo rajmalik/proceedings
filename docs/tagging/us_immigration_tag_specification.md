@@ -328,13 +328,19 @@ Some tags normalize to same tag, For example:
 | `h1-premium-processing` | `H-1B` `premium-processing` |
 | `b2-visitor-visa`       | `B-2`                       |
 
-9) * **tag with abbreviation** Following tags are exceptions to the above rules these tags can very commonly named along with abbreviation. Following name can be kept as listed:
+9) * **tag with abbreviation** Following tags were originally listed as exceptions
+   to the above rules, intended to coexist alongside their abbreviation.
+   **Updated (see `features/timeline-notifications-3/timeline-notifications-{ead,485,coe}.md`
+   for the full live-tagging-evidence writeups):** live Gemini extraction
+   testing found each pair behaves differently in practice, not uniformly —
+   so "keep both, always" no longer holds. Each row below now states which
+   form actually survived as the canonical, currently-selectable tag:
 
-| tag name                       | corresponding abbreviation | Description                                        |
-|:-------------------------------|:---------------------------|:---------------------------------------------------|
-| `change-of-employer-COE`       | COE                        | Process of changing employer on a work visa        |
-| `adjustment-of-status-AOS`     | AOS                        | Process of Change of Status from one visa to other |
-| `employment-authorization-EAD` | EAD                        | Process to get authorized to work legally          |
+| tag name                       | corresponding abbreviation | Description                                        | Current state |
+|:-------------------------------|:---------------------------|:---------------------------------------------------|:---------------|
+| `change-of-employer-COE`       | ~~COE~~ (retired)          | Process of changing employer on a work visa        | Only the tag name survives — `COE` was never selected by the model even when the query text used the literal acronym; retired from `1.3-abbreviations.csv`. |
+| ~~`adjustment-of-status-AOS`~~ (retired) | AOS               | Process of Change of Status from one visa to other | Only the abbreviation survives — the opposite direction from COE; retired from `1.10-common-misc.csv`, `_AOS_TAGS` updated accordingly. |
+| `employment-authorization-EAD` | EAD                        | Process to get authorized to work legally          | Never actually existed as a separate `1.10` duplicate in `tags-cleaned/` — only `EAD` (1.3) is real; this row was aspirational even before this update. |
 
 10) * **Redundancy Exceptions ** There may be some edge-cases where tags can symmentically refer to same tag of different category but with different name. FOr example:
 

@@ -1,36 +1,31 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file guides Claude Code when working inside the **`proceedings-obsidian/`** documentation vault.
 
-## Project Overview
+## What this vault is
 
-This is a US Immigration & Visa Tagging System — a data taxonomy project for standardizing immigration-related content tagging plus a corpus of tagged candidate postings. No executable code.
+An Obsidian vault of analysis notes for the Proceedings codebase (a RAG immigration-intake assistant). Each note documents one file or area of the project — backend modules, the mobile app, the website, infrastructure, the tag taxonomy, and business documents. It is documentation only; there is no build system or tests here.
 
-## Project Structure
+Start at [[Welcome]] (the map of content) or [[Proceedings — Project Overview]].
 
-| Path | Contents |
+## How the vault is organized
+
+| Group | Notes |
 |---|---|
-| `us_immigration_tag_specification.md` | Authoritative specification of tag categories and naming rules |
-| `tags-cleaned/` | The 10 master tag-list CSVs (one per category, sections 1.1–1.10) |
-| `postings-examples/` | 72 candidate postings, each in `case-N/` with `caseN.md` (raw) + `caseN.json` (canonical metadata) |
-| `JSON-SCHEMA-FIELD-DICTIONARY.md` | Field-by-field rules for the posting metadata JSON |
-| `LLM-EXTRACTION-PROMPT.md` | Production system prompt for the real-time tagger (Vertex AI / Gemini) |
+| Backend modules | `api.py.md`, `search_client.py.md`, `query.py.md`, `posting.py.md`, `profile.py.md`, `reconcile.py.md`, `matching.py.md`, `interactions.py.md`, `group_messages.py.md`, `moderation.py.md` |
+| Frontends | `Mobile App.md`, `Design System.md`, `Website.md` |
+| Infrastructure | `Deployment.md`, `GCP Setup.md`, `Environment Setup.md`, `Docs Map.md` |
+| Taxonomy & tagging | `us_immigration_tag_specification.md`, `JSON-SCHEMA-FIELD-DICTIONARY.md`, `LLM-EXTRACTION-PROMPT.md`, `TAGGING-EVALUATION.md`, `posting-specs.md` |
+| Business | `Business Documents.md`, `Data Intake Checklist.md`, `Launch Requirements.md`, `Pilot Offer.md` |
+| Data | `postings-examples/case-N/` — 72 tagged candidate postings (`.md` raw + `.json` metadata) |
 
-## Master tag lists (in `tags-cleaned/`)
+## Conventions for notes
 
-| File | Tag category |
-|---|---|
-| `1.1-non-immigration-visas.csv` | Non-immigrant visa codes (1.1) |
-| `1.2-greencard-categories.csv` | Green card categories (1.2) |
-| `1.3-abbreviations.csv` | Common immigration abbreviations (1.3) |
-| `1.4-consulates.csv` | U.S. embassy/consulate country and city codes (1.4) |
-| `1.5-forms.csv` | USCIS / State Department forms (1.5) |
-| `1.6-visa-form-actions.csv` | Visa- and form-specific actions / attributes (1.6) |
-| `1.7-key-stages.csv` | Key-value stage attribute names (1.7) |
-| `1.8-key-dates.csv` | Key-value date attribute names (1.8) |
-| `1.9-outcomes.csv` | Process / form outcomes (1.9) |
-| `1.10-common-misc.csv` | Layman / topical immigration concerns (1.10) |
+- First line is `# <title>` (for a source-file note, the filename, e.g. `# search_client.py`).
+- Follow with a bold metadata block (**Type:**, **Location:**, **Stack:**, **Deployed:** as relevant), then `---`-separated sections: **Purpose**, tables (Endpoints / Key functions / Pages / Components), **Key Details**, **Dependencies**, **Related**.
+- Cross-link with `[[wikilinks]]` using the exact note titles above.
+- Keep notes accurate to the current source. The **live** backend is `backend/` grounded on the managed **Vertex AI Search (Discovery Engine)** datastore. The old Firecrawl → self-managed Vector Search pipeline is **retired** under `legacy/` — do not describe it as live, and do not re-add per-script notes for it.
 
-## Working with this project
+## Keeping the vault current
 
-This is a pure data/specification project — no build system, tests, or linting. Modifications involve editing master tag CSVs in `tags-cleaned/`, the specification document, or the per-posting JSON files under `postings-examples/`.
+When a source file changes materially, update its note (and any tables in [[Proceedings — Project Overview]] / [[Welcome]] that reference it). When a new backend module, screen area, or docs section is added, create a matching note and link it from [[Welcome]].

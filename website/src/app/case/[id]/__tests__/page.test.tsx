@@ -2,9 +2,18 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import CaseDetailsPage from '../page'
 
+// (Vitest hoists vi.mock — only `mock`-prefixed vars may be referenced inside.)
+const mockBack = vi.fn()
+const mockPush = vi.fn()
+
 // Route param + Link (→ plain anchor so we can read hrefs) + the heavy children
 // the case page composes (each of which fetches on its own — stub them out).
-vi.mock('next/navigation', () => ({ useParams: () => ({ id: 'app-1' }) }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({ id: 'app-1' }),
+  useRouter: () => ({ back: mockBack, push: mockPush }),
+}))
 vi.mock('next/link', () => ({
   default: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
     <a href={href} className={className}>{children}</a>
@@ -66,5 +75,51 @@ describe('CaseDetailsPage — author panel', () => {
     await screen.findByText('My H-1B experience')
     expect(handleLink()).toBeNull()
     expect(screen.queryByTestId('author-section')).toBeNull()
+  })
+})
+
+// features/ui-changes-1/changes-2-.md item 3: "Back to Search" used to be a
+// hardcoded <Link href="/"> that reset all search state on every visit.
+// router.back() instead lands on the history entry UnifiedSearch already
+// kept in sync with the full prior search (query + facets).
+describe('CaseDetailsPage — "Back to Search"', () => {
+  beforeEach(() => { vi.restoreAllMocks(); mockBack.mockClear(); mockPush.mockClear() })
+
+  it('calls router.back() (not a plain navigation to "/") when history exists', async () => {
+    mockPosting({})
+    Object.defineProperty(window, 'history', { value: { length: 2 }, configurable: true })
+    render(<CaseDetailsPage />)
+
+    await screen.findByText('My H-1B experience')
+    screen.getByText('Back to Search').click()
+    expect(mockBack).toHaveBeenCalledTimes(1)
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('falls back to push("/") when there is no real history to pop', async () => {
+    mockPosting({})
+    Object.defineProperty(window, 'history', { value: { length: 1 }, configurable: true })
+    render(<CaseDetailsPage />)
+
+    await screen.findByText('My H-1B experience')
+    screen.getByText('Back to Search').click()
+    expect(mockPush).toHaveBeenCalledWith('/')
+    expect(mockBack).not.toHaveBeenCalled()
+  })
+})
+
+// Reported live: an "Original Content" section heading above the posting's
+// own body read as redundant clutter — the body is shown directly now, no
+// label needed (the AI summary sidebar box already has its own distinct
+// label, so there's no ambiguity to disambiguate against).
+describe('CaseDetailsPage — no "Original Content" heading', () => {
+  beforeEach(() => vi.restoreAllMocks())
+
+  it('renders the posting body without an "Original Content" section heading', async () => {
+    mockPosting({ body: 'The full text of the posting.' })
+    render(<CaseDetailsPage />)
+
+    await screen.findByText('The full text of the posting.')
+    expect(screen.queryByText('Original Content')).not.toBeInTheDocument()
   })
 })

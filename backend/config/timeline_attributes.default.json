@@ -1,0 +1,297 @@
+{
+  "version": 2,
+  "processing_types": [
+    {
+      "value": "EAD",
+      "label": "EAD",
+      "eligibility_categories": [
+        {
+          "code": "(c)(3)(C)",
+          "label": "F-1 STEM OPT extension (24-month)",
+          "tag": "stem-opt-extension"
+        },
+        {
+          "code": "(c)(3)(B)",
+          "label": "F-1 post-completion OPT",
+          "tag": "opt-application"
+        },
+        {
+          "code": "(c)(9)",
+          "label": "Pending adjustment of status (I-485)",
+          "tag": "adjustment-of-status"
+        },
+        {
+          "code": "(c)(26)",
+          "label": "H-4 spouse of H-1B",
+          "tag": "h4-ead"
+        },
+        {
+          "code": "(c)(5)",
+          "label": "J-2 spouse of exchange visitor",
+          "tag": "J-2"
+        },
+        {
+          "code": "(c)(8)",
+          "label": "Asylum applicant",
+          "tag": "asylum"
+        },
+        {
+          "code": "(c)(19)",
+          "label": "Temporary Protected Status",
+          "tag": "TPS"
+        },
+        {
+          "code": "(c)(33)",
+          "label": "DACA",
+          "tag": "DACA"
+        },
+        {
+          "code": "(a)(3)",
+          "label": "Refugee / asylee",
+          "tag": "refugee"
+        },
+        {
+          "code": "(c)(11)",
+          "label": "Humanitarian parole",
+          "tag": "humanitarian-parole"
+        }
+      ]
+    },
+    {
+      "value": "H-1B",
+      "label": "H-1B",
+      "category_label": "Application type",
+      "eligibility_categories": [
+        {
+          "code": "CoS",
+          "label": "Change of Status (initial, in the U.S.)",
+          "tag": "change-of-status-COS"
+        },
+        {
+          "code": "Consular",
+          "label": "Consular processing / stamping (initial)",
+          "tag": "h1b-stamping"
+        },
+        {
+          "code": "COE",
+          "label": "Change of employer (H-1B transfer)",
+          "tag": "change-of-employer-COE"
+        }
+      ]
+    }
+  ],
+  "period_rows": [
+    {
+      "kind": "select",
+      "label": "Month",
+      "field": "key_stages_or_info",
+      "key": "filing_month",
+      "options": [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec"
+      ]
+    },
+    {
+      "kind": "year",
+      "label": "Year",
+      "field": "key_stages_or_info",
+      "key": "filing_year"
+    }
+  ],
+  "scope_row_extras": {},
+  "post_join_row_extras": {
+    "adjustment-of-status": [
+      {
+        "kind": "date",
+        "label": "Priority Date",
+        "field": "key_dates",
+        "key": "priority_date",
+        "required": false
+      }
+    ],
+    "stem-opt-extension": [
+      {
+        "kind": "date",
+        "label": "Date Applied",
+        "field": "key_dates",
+        "key": "ead_filed_date",
+        "required": true
+      },
+      {
+        "kind": "select",
+        "label": "Status",
+        "field": "key_stages_or_info",
+        "key": "application_status",
+        "options": [
+          "approved",
+          "pending",
+          "denied",
+          "RFE",
+          "NOID"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "Service Center",
+        "field": "key_stages_or_info",
+        "key": "service_center",
+        "options": [
+          "PSC",
+          "SRC",
+          "LIN",
+          "VSC"
+        ]
+      },
+      {
+        "kind": "checkbox",
+        "label": "Premium Processing",
+        "field": "key_stages_or_info",
+        "key": "premium_processing"
+      },
+      {
+        "kind": "date",
+        "label": "Request for Initial Evidence (RFIE)",
+        "field": "key_dates",
+        "key": "rfe_date"
+      },
+      {
+        "kind": "checkbox",
+        "label": "Biometrics Requested",
+        "field": "key_stages_or_info",
+        "key": "biometrics_requested"
+      },
+      {
+        "kind": "date",
+        "label": "Biometrics Completed",
+        "field": "key_dates",
+        "key": "biometrics_completed_date"
+      },
+      {
+        "kind": "checkbox",
+        "label": "Notice of Intent to Deny",
+        "field": "key_stages_or_info",
+        "key": "noid_issued"
+      },
+      {
+        "kind": "date",
+        "label": "Date Approved",
+        "field": "key_dates",
+        "key": "ead_approved_date"
+      },
+      {
+        "kind": "date",
+        "label": "Date Card Produced",
+        "field": "key_dates",
+        "key": "ead_card_produced_date"
+      },
+      {
+        "kind": "date",
+        "label": "Date Card Received",
+        "field": "key_dates",
+        "key": "ead_card_received_date"
+      }
+    ],
+    "H-1B": [
+      {
+        "kind": "date",
+        "label": "Receipt Date (petition submitted)",
+        "field": "key_dates",
+        "key": "h1b_receipt_date",
+        "required": false
+      },
+      {
+        "kind": "checkbox",
+        "label": "Premium Processing",
+        "field": "key_stages_or_info",
+        "key": "premium_processing"
+      },
+      {
+        "kind": "select",
+        "label": "Service Center",
+        "field": "key_stages_or_info",
+        "key": "service_center",
+        "options": [
+          "PSC",
+          "SRC",
+          "LIN",
+          "VSC"
+        ]
+      },
+      {
+        "kind": "date",
+        "label": "Actively Being Reviewed",
+        "field": "key_dates",
+        "key": "h1b_review_started_date"
+      },
+      {
+        "kind": "select",
+        "label": "Intermediate Status",
+        "field": "key_stages_or_info",
+        "key": "application_status",
+        "options": [
+          "NOID",
+          "RFE",
+          "NOIR",
+          "NOIRescind"
+        ]
+      },
+      {
+        "kind": "date",
+        "label": "RFE Date",
+        "field": "key_dates",
+        "key": "rfe_date"
+      },
+      {
+        "kind": "date",
+        "label": "Biometrics Appointment",
+        "field": "key_dates",
+        "key": "biometrics_appointment_date"
+      },
+      {
+        "kind": "checkbox",
+        "label": "Administrative Processing",
+        "field": "key_stages_or_info",
+        "key": "admin_processing"
+      },
+      {
+        "kind": "date",
+        "label": "Interview Date",
+        "field": "key_dates",
+        "key": "visa_interview_date"
+      },
+      {
+        "kind": "date",
+        "label": "Approved Date",
+        "field": "key_dates",
+        "key": "h1b_approved_date"
+      },
+      {
+        "kind": "select",
+        "label": "Final Decision",
+        "field": "key_stages_or_info",
+        "key": "outcome_status",
+        "options": [
+          "approved",
+          "denied",
+          "rejected"
+        ]
+      },
+      {
+        "kind": "date",
+        "label": "Final Decision Date",
+        "field": "key_dates",
+        "key": "final_decision_date"
+      }
+    ]
+  }
+}

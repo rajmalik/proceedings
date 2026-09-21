@@ -175,8 +175,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryButton: {
-    paddingVertical: 14,
+    // Real secondary treatment (outlined) so "Not now" reads as a deliberate choice,
+    // not a disabled afterthought (UI_AUDIT §2).
+    paddingVertical: 15,
     borderRadius: borderRadius.default,
+    borderWidth: 1,
+    borderColor: colors.outline,
     alignItems: 'center',
     justifyContent: 'center',
   },

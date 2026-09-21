@@ -51,8 +51,13 @@ def _retry(fn, attempts: int = 3, base_delay: float = 0.5):
                 time.sleep(base_delay * (2 ** i))
     raise last
 
-# Fallback message when the datastore yields no grounded answer.
-FALLBACK_MESSAGE = "I don't have that information — please contact the firm directly."
+# Fallback message when the datastore yields no grounded answer. Self-service
+# product (not a firm intake): nudge the user to rephrase / browse, never imply
+# legal advice or a firm to contact.
+FALLBACK_MESSAGE = (
+    "I couldn't find a grounded answer to that in our sources. Try rephrasing your "
+    "question, or browse related community postings."
+)
 
 # Precedence boost (D-039): rank app posts above reddit above the rest. Disabled
 # by default until the `channel` facet + app-channel posts exist in the datastore
@@ -136,18 +141,28 @@ def _reference_to_chunk(ref) -> dict | None:
             "source": source,
             "labels": _labels_from(meta),
             "score": 0.0,  # structured refs carry no relevance score
+            "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     # Chunked content (advanced/website mode).
     ci = ref.chunk_info
     if ci and (ci.content or ci.chunk):
         dm = ci.document_metadata
         meta = _struct_to_dict(getattr(dm, "struct_data", {})) if dm else {}
+        cid = (getattr(dm, "document", "") or ci.chunk or "").split("/")[-1]
+        # Prefer the doc's real URL over the internal gs:// sidecar path so the
+        # citation is a usable link (official_reference/gov docs carry full_url).
+        uri = str(meta.get("full_url") or meta.get("source_uri") or getattr(dm, "uri", "") or "")
+        source = uri if (uri and not uri.startswith("gs://")) else \
+            str(meta.get("post_title") or getattr(dm, "title", "") or cid)
         return {
-            "chunk_id": (getattr(dm, "document", "") or ci.chunk or "").split("/")[-1],
+            "chunk_id": cid,
             "text": str(ci.content or "")[:500],
-            "source": str(getattr(dm, "uri", "") or getattr(dm, "title", "") or meta.get("post_title", "")),
+            "source": source,
             "labels": _labels_from(meta),
             "score": float(ci.relevance_score or 0.0),
+            "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     # Unstructured docs.
     udi = ref.unstructured_document_info
@@ -162,13 +177,28 @@ def _reference_to_chunk(ref) -> dict | None:
             "source": str(udi.uri or udi.title or udi.document.split("/")[-1]),
             "labels": _labels_from(meta),
             "score": 0.0,
+            "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     return None
 
 
-def answer_query(question: str, project_id: str, location: str, engine_id: str, max_results: int = 5) -> dict:
+def answer_query(question: str, project_id: str, location: str, engine_id: str,
+                 max_results: int = 5, filter_expr: str = "", preamble: str = "") -> dict:
     """
     Ground `question` against the Discovery Engine datastore via the Answer API.
+
+    `filter_expr`, when given, is a Discovery Engine filter applied to retrieval
+    (e.g. 'doc_kind: ANY("gov_news","official_reference")'). Filter only on
+    indexed/filterable fields such as `doc_kind` — never `channel` (unregistered
+    facet → 400). Empty string (default) preserves the pre-existing unfiltered
+    behavior for /api/ask and /api/chat.
+
+    `preamble`, when given, is a custom instruction added to the Answer API's
+    generation prompt (AnswerGenerationSpec.prompt_spec.preamble) — used to keep
+    grounded answers concise and honest (e.g. "answer only from the sources; if
+    the specific answer isn't there, say so rather than inferring"). Default ""
+    keeps the API's stock behavior for /api/ask and /api/chat.
 
     Returns the same dict shape as query() in query.py.
     """
@@ -180,22 +210,28 @@ def answer_query(question: str, project_id: str, location: str, engine_id: str, 
     boost = _boost_spec()
     if boost is not None:
         search_params.boost_spec = boost
+    if filter_expr:
+        search_params.filter = filter_expr
+
+    ans_spec = de.AnswerQueryRequest.AnswerGenerationSpec(
+        include_citations=True,
+        # Do NOT let the API skip queries via its adversarial / non-answer-
+        # seeking / low-relevance classifiers: they are non-deterministic and
+        # intermittently drop legitimate questions (e.g. imperative phrasings
+        # like "Tell me about ...") to 0 references. We ground purely on
+        # whether the datastore returned references (see below).
+        ignore_adversarial_query=False,
+        ignore_non_answer_seeking_query=False,
+        ignore_low_relevant_content=False,
+    )
+    if preamble:
+        ans_spec.prompt_spec = de.AnswerQueryRequest.AnswerGenerationSpec.PromptSpec(preamble=preamble)
 
     request = de.AnswerQueryRequest(
         serving_config=_serving_config(project_id, location, engine_id),
         query=de.Query(text=question),
         search_spec=de.AnswerQueryRequest.SearchSpec(search_params=search_params),
-        answer_generation_spec=de.AnswerQueryRequest.AnswerGenerationSpec(
-            include_citations=True,
-            # Do NOT let the API skip queries via its adversarial / non-answer-
-            # seeking / low-relevance classifiers: they are non-deterministic and
-            # intermittently drop legitimate questions (e.g. imperative phrasings
-            # like "Tell me about ...") to 0 references. We ground purely on
-            # whether the datastore returned references (see below).
-            ignore_adversarial_query=False,
-            ignore_non_answer_seeking_query=False,
-            ignore_low_relevant_content=False,
-        ),
+        answer_generation_spec=ans_spec,
         grounding_spec=de.AnswerQueryRequest.GroundingSpec(include_grounding_supports=True),
     )
 
@@ -267,6 +303,25 @@ def _card_from_struct(case_id: str, meta: dict) -> dict:
         or _as_list(meta.get("tags"))
         or _as_list(meta.get("derived_topic_cluster"))
     )
+    # "news-update"/"discussion"/"blog" must always survive into the card's
+    # (capped) tags, regardless of which source array won the fallback chain
+    # above (posting.py deterministically guarantees "discussion" — and the
+    # model may pick "blog" — in the raw "tags" field, but
+    # concerns_or_questions_tags could still win the chain instead) or of
+    # the 8-item cap below silently dropping them.
+    #
+    # Checking mere membership (`guaranteed not in tags`) isn't enough —
+    # found live: a real posting with 20 raw tags, no concerns_or_questions_tags
+    # (so raw "tags" itself wins the chain unmodified), had "discussion"/
+    # "news-update" sitting at positions 10/11 — well past the 8-item cap
+    # applied below. `guaranteed not in tags` was True->False (already
+    # "present"), so nothing moved them forward, and the cap silently cut
+    # both. Must check `not in tags[:8]` (will it survive the cap as-is?),
+    # not just `not in tags` (does it exist anywhere?) — and remove any
+    # existing occurrence before prepending so it isn't duplicated.
+    for guaranteed in ("news-update", "discussion", "blog"):
+        if guaranteed in _as_list(meta.get("tags")) and guaranteed not in tags[:8]:
+            tags = [guaranteed] + [t for t in tags if t != guaranteed]
     return {
         "case_id": case_id,
         "title": str(meta.get("post_title") or "").strip() or case_id,
@@ -275,13 +330,39 @@ def _card_from_struct(case_id: str, meta: dict) -> dict:
         "consulates": consulates,
         "outcome": str(meta.get("outcome_status") or stages.get("outcome_status") or ""),
         "subreddit": str(meta.get("subreddit") or meta.get("source_container") or ""),
-        "channel": str(meta.get("channel") or ""),
+        # `channel` is present in every doc's struct_data, but — verified
+        # live — the Discovery Engine schema has it registered as a bare
+        # {"type": "string"} (not `retrievable`), so Search API result
+        # snippets omit it entirely (get_posting()'s single-document fetch
+        # isn't affected — that returns full struct_data regardless).
+        # Fallback to deriving it from case_id's leading segment, which is
+        # always accurate by construction — same convention
+        # delete_content() already relies on. Fixes blank "Source" labels
+        # on every list-view card (Search *and* News tabs), not just
+        # gov-news — this was a pre-existing gap, not one introduced here.
+        "channel": str(meta.get("channel") or "").strip() or case_id.split("-", 1)[0],
         "tags": tags[:8],
         "url": str(meta.get("full_url") or meta.get("source_uri") or ""),
         "date": str(meta.get("posting_date") or ""),
-        # Full ingestion timestamp for relative "X ago" display + recency sort;
-        # falls back to the day-granular posting_date when absent.
+        # Full ingestion timestamp — when WE processed it, not when the
+        # content was originally published. Kept for any existing caller
+        # still relying on it; `event_timestamp` below is what the News tab
+        # (and anything else caring about "when did this actually happen")
+        # should display/sort by instead — see search_postings()'s
+        # _SORT_FIELDS docstring for why these routinely diverge for
+        # backend-ingested (gov-news/immihelp/reddit) content.
         "timestamp": str(meta.get("ingestion_timestamp") or meta.get("posting_date") or ""),
+        # The original event date — when the content was actually posted/
+        # published at its source, per posting_date (day-granularity; no
+        # source in this pipeline currently captures original time-of-day
+        # more precisely than that). Never ingestion_timestamp.
+        "event_timestamp": str(meta.get("posting_date") or ""),
+        # First-party/source author identity — a synthetic per-item handle for
+        # app postings, or a fixed per-source handle (e.g. "USCIS") for
+        # gov-news content (GOV-NEWS-INGESTION-PLAN.md §3.6). Single point of
+        # truth here so both search-result cards and the detail view
+        # (get_posting(), which builds on this) carry it consistently.
+        "author_handle": str(meta.get("author_handle") or "").strip(),
     }
 
 
@@ -305,8 +386,23 @@ _FACET_SPECS = [
     {"key": "category", "label": "Category",
      "fields": ["current_visa_or_greencard_category", "visa_applying_for"],
      "csv": "1.2-greencard-categories.csv", "kind": "code", "boost": 0.4, "min_len": 3},
-    {"key": "outcome", "label": "Outcome", "fields": ["key_stages_or_info.outcome_status"],
-     "csv": "1.9-outcomes.csv", "kind": "code", "boost": 0.3, "min_len": 5},
+    # min_len lowered from 5 to 3: matching is exact-code (not substring), so a
+    # 3-char token still has to equal a real 1.9 code ("RFE", etc.) — this only
+    # stops rejecting short-but-valid codes before the exact-match check runs.
+    # Also now checked against tags/concerns_or_questions_tags, not just
+    # key_stages_or_info.outcome_status — _master_tags_block() feeds 1.9 into
+    # the same tags/concerns_or_questions_tags union the model tags from, so an
+    # outcome code can land in either place.
+    {"key": "outcome", "label": "Outcome",
+     "fields": ["key_stages_or_info.outcome_status", "tags", "concerns_or_questions_tags"],
+     "csv": "1.9-outcomes.csv", "kind": "code", "boost": 0.3, "min_len": 3},
+    # New: abbreviations (POE, RFE, NVC, ...) were never registered as a facet
+    # at all, so terms like "POE" were silently dropped from every strictness
+    # level's filter/boost. Same fields as "tag" below — _master_tags_block()
+    # feeds 1.3 into the same tags/concerns_or_questions_tags union.
+    {"key": "abbreviation", "label": "Term",
+     "fields": ["tags", "concerns_or_questions_tags"],
+     "csv": "1.3-abbreviations.csv", "kind": "code", "boost": 0.3, "min_len": 3},
     {"key": "tag", "label": "Tag",
      "fields": ["tags", "concerns_or_questions_tags", "derived_topic_cluster"],
      "csv": "1.10-common-misc.csv", "kind": "tag", "boost": 0.2, "min_len": 6},
@@ -321,7 +417,10 @@ def _csv_path(name: str) -> str:
 
 def _code_variants(code: str) -> set:
     low = code.strip().lower()
-    return {v for v in {low, low.replace("-", ""), low.replace("-", " ")} if v}
+    # Includes a space->hyphen variant (not just hyphen->space) so a spaced-out
+    # full name like "Port of Entry" also matches hyphenated query text like
+    # "port-of-entry" — see _facet_registry()'s abbreviation Full Name indexing.
+    return {v for v in {low, low.replace("-", ""), low.replace("-", " "), low.replace(" ", "-")} if v}
 
 
 def _facet_registry() -> list:
@@ -350,6 +449,19 @@ def _facet_registry() -> list:
                     elif spec["kind"] == "code":
                         for v in _code_variants(code):
                             terms[v] = code
+                        # Abbreviations (1.3-abbreviations.csv: tag,alternate_tag,
+                        # Full Name,Description) carry a human-readable Full Name
+                        # and sometimes an alternate_tag — index those too so a
+                        # query using the spelled-out phrase ("Port of Entry")
+                        # matches the same code as the abbreviation itself
+                        # ("POE"). setdefault: never let an alias shadow a
+                        # primary code's own term.
+                        if spec["key"] == "abbreviation":
+                            for extra in (row[1] if len(row) > 1 else "", row[2] if len(row) > 2 else ""):
+                                extra = extra.strip()
+                                if extra:
+                                    for v in _code_variants(extra):
+                                        terms.setdefault(v, code)
                     elif spec["kind"] == "tag":  # only multi-segment tags (avoid common-word FPs)
                         if "-" in code:
                             terms[code.lower()] = code
@@ -409,6 +521,21 @@ def _boost_from_facets(facets: dict):
     return de.SearchRequest.BoostSpec(condition_boost_specs=specs) if specs else None
 
 
+# Discovery Engine field each `sort` value orders by — both are registered
+# identically in the live schema (retrievable+indexable, type "datetime";
+# confirmed live via SchemaService.GetSchema), so either sorts correctly.
+# "event" (posting_date, the source's own original publish date) is now the
+# default everywhere — ingestion can lag days behind a source's actual
+# publish date, so "most recent" should mean recent-at-the-source, not
+# recent-in-our-pipeline. "recent" (ingestion_timestamp) remains available
+# for any caller that specifically wants ingestion order. "relevance" (no
+# order_by at all — Discovery Engine's own text-relevance ranking governs)
+# is a third option: forcing posting_date-desc on every free-text query
+# used to bury a strongly-matching-but-older posting under unrelated recent
+# ones within the same facet-filtered set — see search_with_strictness().
+_SORT_FIELDS = {"recent": "ingestion_timestamp", "event": "posting_date"}
+
+
 def search_postings(
     query: str,
     project_id: str,
@@ -418,6 +545,7 @@ def search_postings(
     page_token: str = "",
     filter_expr: str = "",
     boost=None,
+    sort: str = "event",
 ) -> dict:
     """
     Ranked posting search (Google-results style) via the Discovery Engine
@@ -428,19 +556,24 @@ def search_postings(
     client = _search_client(project_id, location)
     serving_config = _serving_config(project_id, location, engine_id)
 
-    request = de.SearchRequest(
+    request_kwargs = dict(
         serving_config=serving_config,
         query=query,
         page_size=page_size,
         page_token=page_token or "",
         filter=filter_expr or "",
-        # Most-recent-first: matching postings are returned ordered by ingestion
-        # time (descending), so the freshest content leads every result page.
-        order_by="ingestion_timestamp desc",
         content_search_spec=de.SearchRequest.ContentSearchSpec(
             snippet_spec=de.SearchRequest.ContentSearchSpec.SnippetSpec(return_snippet=True),
         ),
     )
+    if sort != "relevance":
+        # Most-recent-first by whichever timestamp `sort` selects (see
+        # _SORT_FIELDS) — always descending, so the freshest content leads.
+        # sort="relevance" omits this entirely, letting Discovery Engine's own
+        # text-relevance ranking govern order instead.
+        order_field = _SORT_FIELDS.get(sort, _SORT_FIELDS["recent"])
+        request_kwargs["order_by"] = f"{order_field} desc"
+    request = de.SearchRequest(**request_kwargs)
     if boost is not None:
         request.boost_spec = boost
     elif _BOOST_ENABLED:
@@ -468,6 +601,7 @@ def search_with_strictness(
     page_token: str = "",
     strictness: str = "balanced",
     extra_filter: str = "",
+    sort: str = "event",
 ) -> dict:
     """
     Search with a user-chosen precision level:
@@ -476,7 +610,8 @@ def search_with_strictness(
       - 'balanced' : boost matching facets (relevant ones rank first, others kept).
       - 'broad'    : pure semantic search (no facet constraints).
     `extra_filter` (explicitly selected facet chips) is ALWAYS applied as a hard
-    filter regardless of strictness. Adds `applied_filters`, `relaxed`,
+    filter regardless of strictness. `sort` — see search_postings()'s
+    _SORT_FIELDS — passes straight through. Adds `applied_filters`, `relaxed`,
     `effective_strictness`.
     """
     facets = extract_filters(query)
@@ -492,23 +627,23 @@ def search_with_strictness(
 
     if strictness == "strict" and facets:
         data = search_postings(query, project_id, location, engine_id, page_size, page_token,
-                               filter_expr=_and(_filter_expr_from_facets(facets), extra_filter))
+                               filter_expr=_and(_filter_expr_from_facets(facets), extra_filter), sort=sort)
         if not data["results"] and not page_token:
             # No exact matches — fall back to a boosted (balanced) search (keeping
             # any explicitly-selected facets as a hard filter).
             data = search_postings(query, project_id, location, engine_id, page_size, "",
-                                   filter_expr=extra_filter, boost=_boost_from_facets(facets))
+                                   filter_expr=extra_filter, boost=_boost_from_facets(facets), sort=sort)
             return _wrap(data, "balanced", True)
         return _wrap(data, "strict", False)
 
     if strictness == "broad":
         data = search_postings(query, project_id, location, engine_id, page_size, page_token,
-                               filter_expr=extra_filter)
+                               filter_expr=extra_filter, sort=sort)
         return _wrap(data, "broad", False)
 
     # balanced (default)
     data = search_postings(query, project_id, location, engine_id, page_size, page_token,
-                           filter_expr=extra_filter, boost=_boost_from_facets(facets))
+                           filter_expr=extra_filter, boost=_boost_from_facets(facets), sort=sort)
     return _wrap(data, "balanced", False)
 
 
@@ -561,11 +696,8 @@ def get_posting(case_id: str, project_id: str, location: str, datastore_id: str)
         return None
 
     meta = _struct_to_dict(doc.struct_data)
-    card = _card_from_struct(case_id, meta)
+    card = _card_from_struct(case_id, meta)  # author_handle already included
     card["tag_sections"] = _tag_sections_from_meta(meta)
-    # First-party author identity (synthetic handle or username). Empty for
-    # external (Reddit/other) ingests — they carry no author_handle.
-    card["author_handle"] = str(meta.get("author_handle") or "").strip()
 
     # Body lives in the GCS sidecar (.md), referenced by content.uri / gcs_path.
     body = ""

@@ -2,7 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import AuthorByHandlePage from '../page'
 
-vi.mock('next/navigation', () => ({ useParams: () => ({ handle: 'brave-maple-3272' }) }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(), useParams: () => ({ handle: 'brave-maple-3272' }) }))
 vi.mock('next/link', () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
 }))

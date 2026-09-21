@@ -18,19 +18,21 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TAB_BAR_WIDTH = SCREEN_WIDTH - spacing.md * 2;
 const TAB_BAR_HEIGHT = 70;
 
-type TabIconName = 'home' | 'people' | 'chatbubbles' | 'person';
+type TabIconName = 'home' | 'people' | 'newspaper' | 'chatbubbles' | 'person';
 
 const tabIcons: Record<string, { focused: TabIconName; unfocused: `${TabIconName}-outline` }> = {
   Home: { focused: 'home', unfocused: 'home-outline' },
   Find: { focused: 'people', unfocused: 'people-outline' },
-  Community: { focused: 'chatbubbles', unfocused: 'chatbubbles-outline' },
+  News: { focused: 'newspaper', unfocused: 'newspaper-outline' },
+  Discussions: { focused: 'chatbubbles', unfocused: 'chatbubbles-outline' },
   Profile: { focused: 'person', unfocused: 'person-outline' },
 };
 
 const tabLabels: Record<string, string> = {
   Home: 'Home',
   Find: 'Groups',
-  Community: 'Community',
+  News: 'News',
+  Discussions: 'Discussions',
   Profile: 'Profile',
 };
 
@@ -92,7 +94,7 @@ function TabItem({ route, index, state, descriptors, navigation }: TabItemProps)
       <Animated.View style={[styles.tabContent, animatedStyle]}>
         {isFocused && <View style={styles.activeIndicator} />}
         <Ionicons name={iconName} size={22} color={iconColor} />
-        <Animated.Text style={[styles.tabLabel, { color: iconColor }]}>
+        <Animated.Text style={[styles.tabLabel, { color: iconColor }]} numberOfLines={1}>
           {label}
         </Animated.Text>
       </Animated.View>
@@ -144,8 +146,8 @@ const styles = StyleSheet.create({
     backgroundColor: Platform.OS === 'ios'
       ? 'rgba(255, 255, 255, 0.7)'
       : 'rgba(255, 255, 255, 0.95)',
-    // Shadow for floating effect
-    shadowColor: '#000',
+    // Shadow for floating effect (normalized to the shadow-color token)
+    shadowColor: colors.shadowTint,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
     shadowRadius: 24,

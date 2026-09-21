@@ -25,7 +25,7 @@ export function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <Header showLogo showSearch showProfile />
+      <Header showLogo showSearch />
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Progress Stepper */}

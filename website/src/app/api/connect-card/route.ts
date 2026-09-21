@@ -8,9 +8,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const uid = request.headers.get('x-user-id') || ''
+    const tok = request.headers.get('authorization') || ''
     const res = await fetch(`${PYTHON_API_URL}/api/connect-card`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(uid ? { 'X-User-Id': uid } : {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(uid ? { 'X-User-Id': uid } : {}),
+        ...(tok ? { Authorization: tok } : {}),
+      },
       body: JSON.stringify({ note: (body.note || '').slice(0, 2000) }),
     })
     const data = await res.json()

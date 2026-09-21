@@ -9,6 +9,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing } from '../constants/theme';
+import { textStyle } from './AppText';
 import { castVote, getActiveUserId } from '../services/apiService';
 
 interface VoteControlProps {
@@ -98,14 +99,14 @@ export function VoteControl({
         onPress={() => handleVote(1)}
         disabled={busy}
         style={[styles.button, busy && styles.disabled]}
-        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         accessibilityLabel="Upvote"
         accessibilityRole="button"
       >
         <Ionicons name="arrow-up" size={20} color={getUpColor()} />
       </TouchableOpacity>
 
-      <Animated.Text style={[styles.score, { color: getScoreColor() }, scoreStyle]}>
+      <Animated.Text style={[textStyle('labelBold'), styles.score, { color: getScoreColor() }, scoreStyle]}>
         {currentScore}
       </Animated.Text>
 
@@ -113,7 +114,7 @@ export function VoteControl({
         onPress={() => handleVote(-1)}
         disabled={busy}
         style={[styles.button, busy && styles.disabled]}
-        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         accessibilityLabel="Downvote"
         accessibilityRole="button"
       >
@@ -141,8 +142,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   score: {
-    fontFamily: 'NunitoSans_700Bold',
-    fontSize: 14,
+    // Type comes from the `labelBold` token (textStyle); only layout here.
     minWidth: 24,
     textAlign: 'center',
   },

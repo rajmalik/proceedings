@@ -37,7 +37,6 @@ import {
 import {
   getTagVocab,
   getProfile,
-  updateProfile as saveProfileToBackend,
   onboardTurn,
   getActiveUserId,
   TagVocab,
@@ -265,31 +264,14 @@ export function BackgroundOnboardingScreen() {
     });
   };
 
-  // Website parity: stage 1 SAVES the basics before moving on to experiences
-  // (existing journey is preserved in the payload).
-  const handleContinue = async () => {
-    if (saving) return;
-    setSaving(true);
-    try {
-      // Only attempt to save if we have a user ID (skip in dev mode without breaking flow)
-      if (getActiveUserId()) {
-        await saveProfileToBackend(toBackendProfile(profile, journey) as unknown as Record<string, unknown>);
-      }
-      navigation.navigate('ExperiencesOnboarding', { profile, journey });
-    } catch (e) {
-      // In dev mode or on network failure, still allow navigation but warn the user
-      console.warn('Could not save profile:', e);
-      Alert.alert(
-        'Profile not saved',
-        'Your profile could not be saved to the server. You can continue, but your data may not persist.',
-        [
-          { text: 'Go Back', style: 'cancel' },
-          { text: 'Continue Anyway', onPress: () => navigation.navigate('ExperiencesOnboarding', { profile, journey }) },
-        ]
-      );
-    } finally {
-      setSaving(false);
-    }
+  // Basics are carried forward in navigation params and persisted together with
+  // experiences when onboarding COMPLETES (ExperiencesOnboardingScreen writes the
+  // full profile, including these basics). We deliberately do NOT write a partial
+  // profile here: doing so made a step-1-only user look fully onboarded, so a
+  // force-quit after step 1 skipped the Experiences stage forever on relaunch
+  // (audit P0). The backend now only has profile data once onboarding is finished.
+  const handleContinue = () => {
+    navigation.navigate('ExperiencesOnboarding', { profile, journey });
   };
 
   const handleSkip = () => {

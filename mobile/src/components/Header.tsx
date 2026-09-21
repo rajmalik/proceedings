@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography } from '../constants/theme';
@@ -96,9 +96,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontFamily: Platform.OS === 'ios' ? 'Georgia-Bold' : 'serif',
+    // Brand serif (weight encoded in the family; Georgia/serif were unloaded → system fallback).
+    fontFamily: 'Lora_600SemiBold',
     fontSize: 20,
-    fontWeight: '600',
     color: colors.onSurface,
   },
   iconButton: {

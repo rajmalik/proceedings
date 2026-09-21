@@ -105,7 +105,12 @@ def group_b_firestore() -> None:
     gid = f"test-group-{secrets.token_hex(4)}"
     a, b, c = "test-user-a", "test-user-b", "test-user-c"  # c is NOT a member
     try:
-        _seed_group(db, gid, [(a, "alpha"), (b, "bravo")])
+        # demo-arjun is a real registered (seed-roster) user with a Firestore
+        # `users/{uid}.username` of "arjun-h1b" — included so B1b/B1c below can
+        # prove post_message() resolves the REAL handle via handle_for(), not
+        # the raw uid (a/b/c are synthetic test uids with no registered
+        # handle at all, so they can't demonstrate the fix either way).
+        _seed_group(db, gid, [(a, "alpha"), (b, "bravo"), ("demo-arjun", "unused-stale-placeholder")])
 
         m1 = G.post_message(db, gid, a, "first message")
         check("B1 post returns view (no author_uid, is_author)",
@@ -153,6 +158,19 @@ def group_b_firestore() -> None:
         # PII scrub persists
         mp = G.post_message(db, gid, a, "call 415-555-9999")
         check("B10 PII scrubbed on write", "415-555-9999" not in mp["text"], mp["text"])
+
+        # B11-B12: the handle-not-uid fix (post_message → profile.handle_for)
+        # and the last_activity_at bump (matching.py's join/invite bump it
+        # too) — placed last so the extra post doesn't perturb B2/B4/B9's
+        # exact-message-count/ordering assumptions above.
+        before_activity = (db.collection("groups").document(gid).get().to_dict() or {}).get("last_activity_at", "")
+        m_arjun = G.post_message(db, gid, "demo-arjun", "hi from a real registered user")
+        check("B11 post_message resolves the REAL registered handle, not the raw uid",
+              m_arjun["author_handle"] == "arjun-h1b", m_arjun["author_handle"])
+        after_activity = (db.collection("groups").document(gid).get().to_dict() or {}).get("last_activity_at", "")
+        check("B12 posting bumps the parent group doc's last_activity_at",
+              bool(after_activity) and after_activity != before_activity,
+              f"before={before_activity!r} after={after_activity!r}")
     finally:
         _cleanup_group(db, gid)
         print("  cleaned up test docs")

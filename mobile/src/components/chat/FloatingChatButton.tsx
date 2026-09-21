@@ -31,8 +31,9 @@ const styles = StyleSheet.create({
     right: 20,
     width: 60,
     height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.secondary,
+    borderRadius: borderRadius.full,
+    // Brand the primary AI entry point (was gray secondary) — UI_AUDIT §10.
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     ...shadows.level2,

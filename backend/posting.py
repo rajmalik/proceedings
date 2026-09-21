@@ -25,11 +25,13 @@ registering a domain later is a config flip, not a code change. Anonymous author
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import re
 import secrets
 import time
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
 from google import genai
@@ -246,6 +248,7 @@ class _Vocab:
     form: set[str] = set()            # 1.5 forms (profile key_stages KEYS; value domain = outcome)
     misc: set[str] = set()            # 1.3 + 1.10 (profile 'miscellaneous tags & topics')
     profile_stage_keys: set[str] = set()  # 1.7 + 1.5 + 1.1 + 1.3 (NO 1.6) — profile key_stages keys
+    visa_form_map: dict[str, str] = {}    # 1.6 tag -> its "Associated Visa/Form" column value
     # ordered lists for compact prompt blocks
     _visa_list: list[str] = []
     _consulate_list: list[str] = []
@@ -277,6 +280,7 @@ class _Vocab:
             + _load_col("1.6-visa-form-actions.csv")
             + _load_col("1.9-outcomes.csv")
         )
+        cls.visa_form_map = dict(_load_pairs("1.6-visa-form-actions.csv", desc_col=1))
         cls._misc_pairs = _load_pairs("1.10-common-misc.csv")
         cls._tag_list = cls._tag_plain_list + [t for t, _ in cls._misc_pairs]
         cls._stage_list = (
@@ -324,13 +328,255 @@ GROUP_FIELDS = [
 _VOCAB_LISTS_CACHE: dict | None = None
 
 
+# ─────────────────────────── the attribute framework ───────────────────────
+#
+# A Timeline group's fields are CONFIGURATION, not code. Two dropdowns select
+# a scope — Processing type (first) and Eligibility category (second) — and
+# that pair decides two independent sets of rows:
+#
+#   SCOPE rows      what the group is scoped BY. Entered on the find/create
+#                   panel, stored in the GROUP's criteria, part of its name,
+#                   and compared by _exact_match() when searching or deduping.
+#                   Every member of the group shares these values.
+#   POST-JOIN rows  personal per-member facts. Entered on the group's own page
+#                   right after joining, written into the MEMBER'S OWN profile.
+#
+# THE BASE SPEC IS DATA, NOT CODE: config/timeline_attributes.default.json.
+# Firestore overrides it at runtime (attribute_config.py); the file is what
+# serves until something is published there, and what
+# `scripts/publish_attribute_config.py --from-default` seeds a fresh
+# environment with. There is exactly one base — editing the JSON changes the
+# shipped default, and nothing here needs touching.
+#
+# The reasoning that used to live in comments around these literals — why only
+# 8 CFR 274a.12(c) classes are offered, why an I-485 priority date is
+# post-join and optional, what each row field means and how `required`
+# resolves — moved to config/README.md, because JSON has nowhere to put it.
+# Read that before editing the spec.
+CHECKBOX_ON = "yes"
+
+_BASE_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "config", "timeline_attributes.default.json")
+
+# Structurally valid, but offers nothing. Used ONLY when the base JSON is
+# missing or unparseable — a packaging accident, which tests/test_packaging.py
+# exists to catch before a deploy. Degrading rather than raising is deliberate:
+# /api/tag-vocab also carries the CSV vocabulary the post composer and search
+# depend on, and neither has anything to do with Timeline groups.
+_EMPTY_SPEC: dict = {"version": 0, "processing_types": [], "period_rows": [],
+                     "scope_row_extras": {}, "post_join_row_extras": {}}
+
+
+def _load_base_config() -> dict:
+    """Read the shipped base spec. Called once, at import."""
+    try:
+        with open(_BASE_CONFIG_PATH, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        if not isinstance(spec, dict):
+            raise ValueError("base config is not a JSON object")
+        return spec
+    except Exception as e:  # noqa: BLE001 — packaging must not break the API
+        print(f"[posting] WARNING: could not load {_BASE_CONFIG_PATH} "
+              f"({type(e).__name__}: {e}) — Timeline attributes will be empty "
+              f"until a config is published to Firestore")
+        return json.loads(json.dumps(_EMPTY_SPEC))
+
+
+# The spec that ships with the code: the fallback when nothing is published
+# and Firestore is unreachable, and the payload the publish CLI seeds with.
+DEFAULT_ATTRIBUTE_SPEC: dict = _load_base_config()
+
+
+def _period_rows() -> list[dict]:
+    """The base scope every Timeline group gets — a 3-letter calendar Month
+    plus a Year, per the config's `period_rows`.
+
+    ONE shape for every processing type and every eligibility category; there
+    is deliberately no "Cycle" anywhere (config/README.md explains why).
+
+    A MISSING `period_rows` means "not configured, use the shipped base"; an
+    explicitly EMPTY one means "no period rows". `or` would conflate the two
+    and silently reinstate the base against the operator's wishes — hence the
+    `is None`. (Publishing an empty period is separately rejected by
+    attribute_config.validate; see there for why.)"""
+    rows = _spec().get("period_rows")
+    if rows is None:
+        rows = DEFAULT_ATTRIBUTE_SPEC.get("period_rows") or []
+    return [dict(r) for r in rows]
+
+
+def _layer_rows(*layers: list[dict]) -> list[dict]:
+    """Concatenate row layers, a later layer replacing an earlier row with the
+    same `key` in place rather than appending a duplicate control."""
+    out: list[dict] = []
+    at: dict[str, int] = {}
+    for layer in layers:
+        for row in layer:
+            row = dict(row)
+            if row["key"] in at:
+                out[at[row["key"]]] = row
+            else:
+                at[row["key"]] = len(out)
+                out.append(row)
+    return out
+
+
+def timeline_scope_rows(processing_type: str = "", eligibility: str = "") -> list[dict]:
+    """The scope controls the find/create panel shows for a dropdown pair.
+
+    Either argument may be empty — a type with no eligibility categories
+    (H-1B) resolves off the type alone, and a bare tag resolves off itself,
+    which is what lets tag-only callers (group naming, the group page) reuse
+    this without knowing which dropdown a tag came from."""
+    extras = _spec().get("scope_row_extras") or {}
+    return _layer_rows(_period_rows(),
+                       extras.get(processing_type, []),
+                       extras.get(eligibility, []))
+
+
+def timeline_post_join_rows(processing_type: str = "", eligibility: str = "") -> list[dict]:
+    """The per-member controls shown after joining, for a dropdown pair.
+    Empty list => that scope collects nothing and joining is ungated."""
+    extras = _spec().get("post_join_row_extras") or {}
+    return _layer_rows(extras.get(processing_type, []),
+                       extras.get(eligibility, []))
+
+
+def required_keys(rows: list[dict]) -> list[str]:
+    """Which of `rows` a member must fill in.
+
+    If ANY row declares "required" the declarations are taken literally —
+    which is the only way to say "nothing here is mandatory" (a template whose
+    single row is `"required": False` collects an entirely optional fact).
+    A template that declares nothing falls back to row 0, the convention every
+    template predating the flag was written to."""
+    if any("required" in r for r in rows):
+        return [r["key"] for r in rows if r.get("required")]
+    return [rows[0]["key"]] if rows else []
+
+
+def _resolve_templates() -> tuple[dict[str, list[dict]], dict[str, list[dict]], list[dict]]:
+    """Flatten the live spec into the two tag-keyed registries the rest of the
+    system reads, and return the processing types enriched with the
+    `scope_rows`/`post_join_rows` each dropdown option implies — no second
+    lookup for a client, and correct even once a type and a category both
+    contribute rows.
+
+    The flat dicts stay keyed by a single tag because their callers (group
+    naming, the group page, attribute validation) only ever have a stored tag
+    to go on, never the dropdown pair that produced it.
+
+    Builds fresh from `_spec()` on every call — cheap dict work over a handful
+    of rows, and it is what lets a config edit take effect without a restart.
+    Callers that want it memoised go through the module-level views below."""
+    scope: dict[str, list[dict]] = {}
+    post_join: dict[str, list[dict]] = {}
+    types: list[dict] = []
+    for raw in _spec().get("processing_types") or DEFAULT_ATTRIBUTE_SPEC.get("processing_types") or []:
+        ptype = {**raw, "eligibility_categories": []}
+        pv = ptype["value"]
+        ptype["scope_rows"] = scope[pv] = timeline_scope_rows(pv)
+        ptype["post_join_rows"] = timeline_post_join_rows(pv)
+        # Only tags that actually collect something get a POST_JOIN entry —
+        # presence in that dict is what gates joining, so an empty list would
+        # gate a group behind a form with no fields in it.
+        if ptype["post_join_rows"]:
+            post_join[pv] = ptype["post_join_rows"]
+        for raw_cat in raw.get("eligibility_categories") or []:
+            cat = {**raw_cat}
+            tag = cat["tag"]
+            cat["scope_rows"] = timeline_scope_rows(pv, tag)
+            cat["post_join_rows"] = timeline_post_join_rows(pv, tag)
+            # The tag-keyed entry can't know which type it was reached
+            # through, so it resolves off the tag alone.
+            scope[tag] = timeline_scope_rows(eligibility=tag)
+            pj = timeline_post_join_rows(eligibility=tag)
+            if pj:
+                post_join[tag] = pj
+            ptype["eligibility_categories"].append(cat)
+        types.append(ptype)
+    return scope, post_join, types
+
+
+class _LiveMapping(Mapping):
+    """A read-only dict view that re-resolves from the live config on access.
+
+    Exists so externalising the config didn't have to touch the ~15 call sites
+    (and every test) that read these registries as plain dicts — `in`, `[k]`,
+    `.get()`, `.items()` and iteration all behave as before, they just see the
+    current config instead of whatever was frozen at import."""
+
+    def __init__(self, index: int):
+        self._index = index
+
+    def _d(self) -> dict:
+        return _resolve_templates()[self._index]
+
+    def __getitem__(self, k): return self._d()[k]
+    def __iter__(self): return iter(self._d())
+    def __len__(self): return len(self._d())
+    def __repr__(self): return repr(self._d())
+
+
+class _LiveSequence(Sequence):
+    """The same idea for PROCESSING_TYPES / EAD_ELIGIBILITY_CATEGORIES, which
+    callers index and iterate as lists."""
+
+    def __init__(self, pick):
+        self._pick = pick
+
+    def _l(self) -> list:
+        return self._pick(_resolve_templates()[2])
+
+    def __getitem__(self, i): return self._l()[i]
+    def __len__(self): return len(self._l())
+    def __repr__(self): return repr(self._l())
+
+
+# Tag -> rows. TAG_ATTRIBUTE_TEMPLATES holds the scope rows (find/create
+# panel), POST_JOIN_ATTRIBUTE_TEMPLATES the per-member ones (group page); a
+# tag absent from the latter means joining that group is ungated.
+TAG_ATTRIBUTE_TEMPLATES = _LiveMapping(0)
+POST_JOIN_ATTRIBUTE_TEMPLATES = _LiveMapping(1)
+
+# The two dropdowns.
+PROCESSING_TYPES = _LiveSequence(lambda types: types)
+
+# EAD's own second-dropdown list. Narrow by construction — use it only when
+# you specifically mean EAD's 8 CFR categories. Anything resolving "which
+# category is this group scoped to" must use ALL_ELIGIBILITY_CATEGORIES:
+# more than one type has a list now, and reading EAD's alone made every H-1B
+# application type resolve to nothing, which collapsed three distinct cohorts
+# onto one generated name (Timeline dedup is name-based).
+EAD_ELIGIBILITY_CATEGORIES = _LiveSequence(
+    lambda types: next((t["eligibility_categories"] for t in types if t["value"] == "EAD"), []))
+
+# Every type's categories, in dropdown order.
+ALL_ELIGIBILITY_CATEGORIES = _LiveSequence(
+    lambda types: [c for t in types for c in (t.get("eligibility_categories") or [])])
+
+
+def _spec() -> dict:
+    """The live attribute spec — Firestore-backed, TTL-cached, falling back to
+    DEFAULT_ATTRIBUTE_SPEC. Imported lazily because attribute_config validates
+    against this module's vocabulary."""
+    import attribute_config
+    return attribute_config.get()
+
+
 def vocab_lists() -> dict:
-    """The controlled vocabularies for the composer's add-tag autocomplete.
-    Assembled once per process — the CSVs are static at runtime, and this used
-    to rebuild the whole payload (uniq passes + domain map) on every request."""
+    """The controlled vocabularies for the composer's add-tag autocomplete,
+    plus the Timeline attribute templates both clients render from.
+
+    The CSV-derived half is assembled once per process — those files are
+    static at runtime, and rebuilding the uniq passes and domain map on every
+    request was measurable. The ATTRIBUTE half is spliced in fresh on each
+    call, because it comes from the externalised config: caching it here for
+    the process lifetime is exactly what used to make a config change require
+    a restart. The splice is four dict lookups over already-resolved data."""
     global _VOCAB_LISTS_CACHE
     if _VOCAB_LISTS_CACHE is not None:
-        return _VOCAB_LISTS_CACHE
+        return {**_VOCAB_LISTS_CACHE, **_attribute_vocab()}
     _Vocab.load()
     # de-dupe while preserving order
     def _uniq(xs: list[str]) -> list[str]:
@@ -356,7 +602,20 @@ def vocab_lists() -> dict:
         # key -> value-domain (incl. every form -> 'outcome')
         "stage_value_domains": stage_value_domains_map(),
     }
-    return _VOCAB_LISTS_CACHE
+    return {**_VOCAB_LISTS_CACHE, **_attribute_vocab()}
+
+
+def _attribute_vocab() -> dict:
+    """The config-derived half of the vocab payload, resolved fresh so an
+    edit to the Firestore spec reaches both clients within one TTL."""
+    scope, post_join, types = _resolve_templates()
+    return {
+        "tag_attribute_templates": scope,
+        "post_join_attribute_templates": post_join,
+        "processing_types": types,
+        "ead_eligibility_categories": next(
+            (t["eligibility_categories"] for t in types if t["value"] == "EAD"), []),
+    }
 
 
 # key_stages_or_info keys whose VALUE must come from a sub-vocabulary (not free text).
@@ -482,7 +741,8 @@ Return ONLY a single JSON object — no prose, no Markdown fences.
   "language": string,                           // ISO-639-1, default "en"
   "tagging_confidence": number,                 // 0.0..1.0
   "posting_type": string,                       // consular_visa|in_us_status|experience|general_question
-  "relevant_sections": string[]                 // which tag sections genuinely apply (see below)
+  "relevant_sections": string[],                // which tag sections genuinely apply (see below)
+  "is_personal_case": boolean                   // true if this describes/asks about the POSTER'S OWN situation, even vaguely or without a specific visa code; false ONLY for a general policy/process/industry discussion not tied to their own case (see "discussion" below)
 }
 
 # RULES
@@ -510,6 +770,14 @@ Return ONLY the sections that truly apply (omit the rest). Example: a consular B
 
 Always capture the applicant's visa/status in current_visa_or_greencard_category and/or visa_applying_for whenever one is discernible.
 Populate key_stages_or_info with discrete outcomes/state facts (e.g. visa_status: approved, I-140: approved) and key_dates with any dates mentioned — these become their own UI sections when present.
+
+family-immigration, employment-immigration, and adjustment-of-status are LAST-RESORT category codes — use them ONLY when the posting is clearly family-based, employment-based, or (for adjustment-of-status) an I-485/AOS filing of unstated basis, but truly gives no way to determine a specific code (IR-1, F2A-FAMILY, EB-2, ...). I-485 and "AOS"/"adjustment of status" are used interchangeably by posters for the same real-world action (filing to become a permanent resident) — treat a mention of either the same way. Never use these as a shortcut when a specific code IS determinable from the text — e.g. an explicit "my wife"/"my husband" mention with a U.S.-citizen petitioner means IR-1, not family-immigration; "filed my I-485 based on my approved I-140 in EB-2" means EB-2, not adjustment-of-status.
+
+Set "is_personal_case" to false ONLY for a general question or discussion about immigration policy, process, or industry-wide news that is NOT tied to the poster's own situation — e.g. "what does everyone think about the new $100k H-1B fee", "why does every category feel backed up this year". Set it to true for EVERYTHING else, including a vague personal question with no specific visa code named — e.g. "is it too late for my priority date to still lock in this year" is personal (uses "my", asks about their own timeline) even though no visa is named. When genuinely unsure, default to true — a posting incorrectly treated as personal just asks the poster to clarify their status; a personal posting incorrectly treated as general discussion loses its personal-status signal entirely. (The system deterministically tags "discussion" when is_personal_case is false and no visa/status was captured — do not tag "discussion" yourself.)
+
+A posting that is mainly a LINK/reference to a news article, with a short reaction or invitation to discuss (not the poster's own case) — e.g. a one-line comment plus a URL — should be tagged with BOTH "news-update" AND "discussion": "news-update" because it's reporting/sharing real news, "discussion" because it's inviting conversation about it, not stating the poster's own status. These two are not mutually exclusive.
+
+"blog" (1.10) is for a standalone informational or educational write-up about U.S. immigration (tips, how-to guides, explainers) that is NOT the poster's own case and NOT primarily a reaction to one specific news item — that distinction is what separates it from "discussion" (which is conversational/reactive) and from "experience-posting" (which is the poster's own lived account). A shared link to someone else's blog/explainer article also gets "blog". Like "discussion", a "blog"-tagged posting with no personal visa/status claim does not need one — do not force a visa/status field to satisfy validation.
 """
 
 
@@ -589,6 +857,135 @@ def _normalize_groups(groups: dict) -> dict:
 
 _POSTING_TYPES = {"consular_visa", "in_us_status", "experience", "general_question"}
 
+# Form I-130 ("Petition for Alien Relative") has exactly one use: family-based
+# immigrant petitions — no employment/diversity/investor/asylum path ever
+# touches it. Unlike I-130 -> a specific greencard category (8 possible
+# codes: IR-1/IR-2/IR-5/F1/F2A/F2B/F3/F4, indistinguishable from the form
+# alone), I-130 -> "this is family-based" is a safe, unambiguous inference.
+_I130_TAGS = {"I-130", "i130-filing", "i130-approval"}
+
+# Symmetric to _I130_TAGS above, for the employment side: Form I-140
+# ("Immigrant Petition for Alien Worker") has exactly one use — employment-
+# based immigrant petitions — no family/diversity/investor/asylum path ever
+# touches it, so I-140 -> "this is employment-based" is equally safe and
+# unambiguous, even though it can't pin down which specific EB category
+# (EB-1/EB-1A/EB-1B/EB-1C/EB-2/EB-3 all file I-140).
+_I140_TAGS = {"I-140", "i140-filing", "i140-approval", "i140-portability"}
+
+# Last-resort generic categories (tags-cleaned/1.2-greencard-categories.csv)
+# for when a posting is clearly family- or employment-based (the model
+# tagged it, or the deterministic _I130_TAGS rule above did) but neither
+# the model nor _derive_visa_from_tags() could pin down a specific code —
+# e.g. a general discussion post about "filing I-130 and I-485" with no
+# stated relationship (spouse/parent/child/sibling all map to different
+# codes). Found live: docs/tagging/VISA-VOCAB-GAPS-AND-CURATION-BLOCKERS.md
+# Category C/D. Deliberately narrow — only fires when a *tag-level* signal
+# already exists; a posting with no family/employment signal at all still
+# correctly fails validate() and needs a human to supply real information,
+# not a generic label. See _apply_visa_backfill()'s ordering: this only
+# ever runs after _derive_visa_from_tags() has already had its chance, so
+# a real, specific, derivable code always wins over the generic fallback.
+_GENERIC_CATEGORY_FALLBACK = {
+    "family-based-immigration": "family-immigration",
+    "employment-based-immigration": "employment-immigration",
+}
+
+# I-485 (the form) and AOS (the process it's filed for) aren't duplicates —
+# they're two names for the same real-world action, used interchangeably by
+# posters — but neither is itself a visa/GC CATEGORY: AOS can be filed on a
+# family, employment, diversity, or asylum basis, so mentioning it alone
+# doesn't tell us which. Every tag below (both the i485-* and aos-* action
+# families in 1.6, plus the bare form/abbreviation) represents the same
+# "filed for a green card, basis unstated" signal. adjustment-of-status is
+# the even-more-generic sibling of family-immigration/employment-immigration
+# below it in _apply_visa_backfill()'s ordering — it only fires when even
+# THOSE couldn't narrow things down (e.g. no I-130/I-140 signal either).
+_AOS_TAGS = {"I-485", "AOS", "i485-filing", "i485-approval", "i485-rfe",
+             "aos-filing", "aos-interview", "aos-approval"}
+
+# All three last-resort codes are now valid entries in the model's own visa
+# vocab list (they're 1.2 CSV rows like any other), so the model CAN pick one
+# directly instead of leaving both fields empty for this function to fill in
+# — found live: given "based on my approved I-130 (spouse petition)" (a
+# clearly family-based signal), the model still sometimes picks the more
+# generic adjustment-of-status on its own, bypassing the specificity
+# ordering below entirely (that ordering is only ever consulted when BOTH
+# fields start empty). The prompt's "never use these as a shortcut" guidance
+# alone isn't reliable enough — same lesson as _apply_discussion_backfill().
+_LAST_RESORT_CODES = {"family-immigration", "employment-immigration", "adjustment-of-status"}
+
+
+def _apply_visa_backfill(groups: dict, is_personal_case=True) -> None:
+    """Deterministically fill visa_applying_for/current_visa_or_greencard_category
+    in place, trying the more specific signal first:
+      1. _derive_visa_from_tags() — a single unambiguous process-tag mapping
+         (e.g. h1b-petition -> H-1B, opt-application -> F-1).
+      2. _GENERIC_CATEGORY_FALLBACK — a broad family/employment signal
+         without enough detail for a specific code.
+      3. _AOS_TAGS -> adjustment-of-status — an even broader "filing for a
+         green card, basis unknown" signal. Last resort of the last resorts:
+         only reached when neither of the above found anything more
+         specific, so a real family/employment signal (e.g. an I-130 tag
+         alongside the AOS filing) always wins first.
+    No-op if either field already holds a REAL (non-last-resort) answer —
+    never overrides one, by the model or a human curator's edit. But if the
+    ONLY thing present is itself a last-resort code (the model's own,
+    possibly premature, choice), that's cleared and re-derived — see
+    _LAST_RESORT_CODES above for why this re-derivation is necessary.
+
+    No-op entirely when is_personal_case is False — a background/topic tag
+    like "family-based-immigration" or a process tag like "h1b-petition" can
+    legitimately appear on content that's just discussing that topic (e.g. a
+    news link about H-1B policy, or commentary on family-based overstay
+    forgiveness), not the poster's own case. Found live: a link-share post
+    with no personal status claim at all still got backfilled to
+    family-immigration because the model tagged "family-based-immigration"
+    as the ARTICLE's topic — which then suppressed the "discussion" tag
+    entirely, since _apply_discussion_backfill() only fires when both visa
+    fields are still empty. is_personal_case defaults to True so
+    build_canonical()'s call site (no fresh extraction available, operates
+    on already client-submitted groups) keeps its existing behavior
+    unchanged — only suggest_tags() passes the real classification through."""
+    if is_personal_case is False:
+        return
+    current, applying = groups["current_visa_or_greencard_category"], groups["visa_applying_for"]
+    if (current and current[0] not in _LAST_RESORT_CODES) or (applying and applying[0] not in _LAST_RESORT_CODES):
+        return
+    groups["current_visa_or_greencard_category"] = []
+    groups["visa_applying_for"] = []
+    derived = _derive_visa_from_tags(groups["tags"])
+    if derived:
+        groups["visa_applying_for"] = [derived]
+        return
+    for trigger_tag, fallback in _GENERIC_CATEGORY_FALLBACK.items():
+        if trigger_tag in groups["tags"]:
+            groups["current_visa_or_greencard_category"] = [fallback]
+            return
+    if _AOS_TAGS & set(groups["tags"]):
+        groups["current_visa_or_greencard_category"] = ["adjustment-of-status"]
+        return
+
+
+def _apply_discussion_backfill(groups: dict, is_personal_case) -> None:
+    """Deterministically add the "discussion" tag when a posting has no visa
+    signal at all (after _apply_visa_backfill() has already had its chance)
+    AND the model classified it as NOT the poster's own case
+    (is_personal_case is False). validate() treats "discussion" as an
+    exemption from the visa-required rule, same as "news-update" —
+    a genuine policy/process/industry discussion has no personal status to
+    capture, and shouldn't be rejected for lacking one.
+
+    `is_personal_case` defaults to True (personal) for anything other than
+    the literal boolean False — fail closed: a missing/malformed field from
+    the model, or an old cached extraction from before this field existed,
+    must never accidentally wave a personal posting through unflagged.
+    No-op if either visa field is already populated, mirroring
+    _apply_visa_backfill()'s own guard."""
+    if groups["visa_applying_for"] or groups["current_visa_or_greencard_category"]:
+        return
+    if is_personal_case is False:
+        _add_tag_once(groups, "discussion")
+
 
 # UI tag sections (primary_consulate is omitted from the UI — it's derived from
 # consulates[0] at submit; consulates is the single consulate section).
@@ -620,6 +1017,54 @@ def _clean_dates(value) -> dict:
     return out
 
 
+def _add_tag_once(groups: dict, tag: str) -> None:
+    """Append `tag` to groups['tags'] unless it's already there OR already in
+    concerns_or_questions_tags. validate() rejects a tag appearing in more
+    than one bucket, so every deterministic auto-tag rule (timeline,
+    family-based-immigration, ...) must go through this rather than
+    checking groups['tags'] alone — the model may have legitimately put the
+    same tag in concerns_or_questions_tags instead (e.g. a post that ASKS
+    about a case timeline, not just states one)."""
+    if tag not in groups["tags"] and tag not in groups["concerns_or_questions_tags"]:
+        groups["tags"].append(tag)
+
+
+def _derive_visa_from_tags(tags: list[str]) -> str:
+    """Deterministically infer a single visa/GC code from process tags already
+    applied (e.g. 'h1b-petition' -> 'H-1B'), for posts that reference a
+    specific visa's process without a personal status claim (tips/advice/
+    discussion content that would otherwise fail validate()'s visa-required
+    rule). Only backfills when the 1.6 "Associated Visa/Form" mapping is
+    unambiguous and that code is itself a valid 1.1/1.2 vocab entry — skips
+    form numbers ('I-129') and generic values ('Any visa') automatically,
+    since those aren't in _Vocab.visa.
+
+    A "/"-joined mapping (e.g. 'L-1 / H-1B', 'OPT / F-1') isn't automatically
+    ambiguous — it's only a real either/or when MORE THAN ONE side is itself
+    a selectable 1.1/1.2 code. 'L-1 / H-1B' (a change-of-status pair) has two
+    valid codes on either side — genuinely ambiguous, correctly skipped.
+    'OPT / F-1' has exactly one ('OPT' is a benefit name, not a visa type,
+    so it's never in _Vocab.visa) — no real ambiguity, since OPT/CPT are
+    F-1-only benefits. Found live: a real curated post about Initial OPT
+    (opt-application -> 'OPT / F-1') failed validate() because the old
+    strict 'no "/" at all' check discarded this unambiguous case along with
+    the genuinely ambiguous ones — see
+    docs/tagging/VISA-VOCAB-GAPS-AND-CURATION-BLOCKERS.md."""
+    _Vocab.load()
+    for t in tags:
+        mapped = _Vocab.visa_form_map.get(t, "")
+        if not mapped:
+            continue
+        if mapped in _Vocab.visa:
+            return mapped
+        if "/" in mapped:
+            candidates = [c.strip() for c in mapped.split("/")]
+            valid = [c for c in candidates if c in _Vocab.visa]
+            if len(valid) == 1:
+                return valid[0]
+    return ""
+
+
 def _relevant_sections(extracted: dict, groups: dict) -> list[str]:
     """The model decides which tag sections apply; fall back to a sensible heuristic."""
     raw = extracted.get("relevant_sections")
@@ -643,16 +1088,101 @@ def suggest_tags(title: str, description: str) -> dict:
     extracted = _extract(title, description)
     groups: dict = {f: _clean_group(f, extracted.get(f)) for f in GROUP_FIELDS}
     groups = _normalize_groups(groups)
+    is_personal_case = extracted.get("is_personal_case")
+    # A posting the model itself classified as NOT the poster's own case
+    # must never carry a personal visa/status claim, even if a visa term is
+    # literally discernible in the text. Found live: a general H-1B lottery
+    # guide correctly got is_personal_case=False and the "blog" tag, but the
+    # model still put "H-1B" into visa_applying_for — the RULES section's
+    # "always capture... whenever discernible" doesn't reliably distinguish
+    # "this is the applicant's own status" from "this term appears in a
+    # general-topic post." Force-clear rather than trust the model to also
+    # correctly apply that distinction — same "enforce in code, not just in
+    # the prompt" reasoning as _apply_visa_backfill()'s is_personal_case gate.
+    if is_personal_case is False:
+        groups["current_visa_or_greencard_category"] = []
+        groups["visa_applying_for"] = []
     ptype = extracted.get("posting_type")
     if ptype not in _POSTING_TYPES:
         ptype = ""
+    key_dates = _clean_dates(extracted.get("key_dates"))
+    # Any posting with dated milestones gets `timeline` deterministically —
+    # the model's own judgment on this thin/generic tag is inconsistent, so
+    # don't leave it to chance (same rule build_experience_canonical() already
+    # applies for phase-J experiences).
+    if key_dates:
+        _add_tag_once(groups, "timeline")
+    # I-130 in any form -> family-based-immigration, I-140 -> employment-
+    # based-immigration, deterministically (see _I130_TAGS/_I140_TAGS).
+    # Doesn't touch current_visa_or_greencard_category — neither form alone
+    # can tell us the specific category (I-130: spouse/parent/sibling/etc.;
+    # I-140: EB-1/EB-1A/EB-1B/EB-1C/EB-2/EB-3). Runs BEFORE the visa
+    # backfill below, not after — _apply_visa_backfill's generic-fallback
+    # step keys off these exact tags, so they need to already be present by
+    # the time that runs (matters when the model itself didn't
+    # independently emit the topic tag and only this deterministic rule
+    # adds it).
+    if _I130_TAGS & set(groups["tags"]):
+        _add_tag_once(groups, "family-based-immigration")
+    if _I140_TAGS & set(groups["tags"]):
+        _add_tag_once(groups, "employment-based-immigration")
+    # Tips/advice/discussion content often references a specific visa's
+    # process tags (e.g. h1b-petition) without a personal status claim, or
+    # a family/employment-based post that never states enough detail for a
+    # specific code — both would otherwise fail validate()'s visa-required
+    # rule. Backfill deterministically from the post's own tags rather than
+    # requiring a human to notice and hand-add it every time — see
+    # _apply_visa_backfill(). Gated on is_personal_case: a background/topic
+    # tag can legitimately describe what a NON-personal post is ABOUT (e.g.
+    # a news link commenting on family-based overstay policy), not the
+    # poster's own status.
+    _apply_visa_backfill(groups, is_personal_case)
+    # Last resort, after every visa-derivation attempt above has come up
+    # empty: see _apply_discussion_backfill().
+    _apply_discussion_backfill(groups, is_personal_case)
     return {
         "groups": groups,
         "relevant_sections": _relevant_sections(extracted, groups),
         "posting_type": ptype,
         "key_stages_or_info": _clean_stages(extracted.get("key_stages_or_info")),
-        "key_dates": _clean_dates(extracted.get("key_dates")),
+        "key_dates": key_dates,
     }
+
+
+# Fields returned by suggest_query_tags(), in the same names search_client's
+# suggested_filters()/_facets_filter() already use for facet field ids — so a
+# toggled query-tag chip's "field:code" id plugs directly into the frontend's
+# existing selectedFacets mechanism with no translation layer.
+_QUERY_TAG_FIELDS = ["visa_applying_for", "current_visa_or_greencard_category", "consulates", "tags"]
+
+
+def suggest_query_tags(query: str) -> list[dict]:
+    """Run the same Gemini-based extraction used for postings, scoped to a
+    search query string, and return matches as [{field, code, label}, ...] —
+    the same shape suggested_filters() already uses for facet chips, so a
+    toggled query-tag chip plugs directly into the frontend's existing
+    facet-filter state (field:code ids), no new mechanism needed on either
+    client (features/ui-changes-1/changes-2-.md item 4).
+
+    Deliberately NOT a thin wrapper around suggest_tags(): that function
+    requires separate title/description (Pydantic-gated to min_length 3/10
+    on its own endpoint, /api/tag-suggest) and returns a much larger shape
+    (relevant_sections, posting_type, key_stages_or_info, key_dates) that's
+    meaningless for a bare search string. Here the query stands in for the
+    "title" with an empty description; the only guard is non-empty input.
+    This is a real Gemini call, not free — callers should trigger it on
+    search submit, not per keystroke."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    extracted = _extract(q, "")
+    groups = {f: _clean_group(f, extracted.get(f)) for f in GROUP_FIELDS}
+    groups = _normalize_groups(groups)
+    out: list[dict] = []
+    for field in _QUERY_TAG_FIELDS:
+        for code in groups.get(field) or []:
+            out.append({"field": field, "code": code, "label": code})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -669,8 +1199,25 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 def validate(c: dict) -> list[str]:
     _Vocab.load()
     errs: list[str] = []
-    # A visa/status MUST be captured in at least one of the two visa fields.
-    if not c.get("current_visa_or_greencard_category") and not c.get("visa_applying_for"):
+    # A visa/status MUST be captured in at least one of the two visa fields —
+    # except for content with nothing personal to require a status for:
+    # (1) `news-update` — general policy/news content (deterministic, see
+    # build_canonical() callers like publish_gov_news_item()) — see
+    # docs/ingestion/GOV-NEWS-INGESTION-PLAN.md §3.4; (2) `discussion` — a
+    # genuine general discussion/question about policy, process, or industry
+    # news, not the poster's own case (deterministically tagged by
+    # suggest_tags() when is_personal_case is false); (3) `blog` — a
+    # standalone informational/educational write-up, same reasoning as
+    # discussion but for non-reactive content (see _SYSTEM_PROMPT). A
+    # posting that DOES also tie to a specific visa still gets tagged with
+    # it normally under any of these, so no signal is lost either way.
+    # Checked in both buckets — _add_tag_once() is itself bucket-agnostic
+    # (won't double-add if the tag already landed in
+    # concerns_or_questions_tags some other way), so validate() must be too.
+    exempt_tags = set(c.get("tags", [])) | set(c.get("concerns_or_questions_tags", []))
+    _NO_PERSONAL_STATUS_TAGS = {"news-update", "discussion", "blog"}
+    if (not c.get("current_visa_or_greencard_category") and not c.get("visa_applying_for")
+            and not (_NO_PERSONAL_STATUS_TAGS & exempt_tags)):
         errs.append("Capture a visa/status in 'Current status' or 'Visa applying for' before submitting")
     for f in ("current_visa_or_greencard_category", "visa_applying_for"):
         for t in c.get(f, []):
@@ -731,18 +1278,79 @@ def generate_handle() -> str:
     return _synthetic_handle()
 
 
+# Valid client_platform values — a soft analytics field, not content-integrity
+# critical (see docs/ingestion/PATH-B-PROVENANCE-PLAN.md), so an invalid/unknown
+# value clamps to "" rather than raising.
+_CLIENT_PLATFORMS = {"web", "ios", "android"}
+
+
+def content_hash_for(title: str, description: str) -> str:
+    """Deterministic fingerprint of a doc's content, used by build_canonical()
+    and by scripts/curation/poll_gov_news.py to classify a source item as
+    new/unchanged/edited BEFORE deciding whether to publish — must be a
+    shared function, not two copies of the same formula, so the two can
+    never drift out of sync."""
+    return hashlib.sha256(f"{title}\n{description}".encode()).hexdigest()
+
+
 def build_canonical(title: str, description: str, tags: dict,
                     key_stages: dict | None = None, key_dates: dict | None = None,
-                    extracted: dict | None = None) -> dict:
+                    extracted: dict | None = None,
+                    *,
+                    channel: str = CHANNEL,
+                    ingestion_method: str = "user_post",
+                    source_system: str = "",
+                    subreddit: str = "",
+                    reddit_post_id: str = "",
+                    full_url: str = "",
+                    posting_date: str = "",
+                    client_platform: str = "",
+                    author_handle: str = "",
+                    source_item_id: str = "") -> dict:
     """Assemble the full sidecar JSON. `tags`/`key_stages`/`key_dates` (user-edited)
-    override the model; remaining context fields come from `extracted`."""
+    override the model; remaining context fields come from `extracted`.
+
+    The keyword-only params exist for backend-ingested (Reddit, gov-news) content —
+    see docs/ingestion/PATH-B-PROVENANCE-PLAN.md and
+    docs/ingestion/GOV-NEWS-INGESTION-PLAN.md. Every default reproduces today's
+    exact app-composer behavior; only `publish_reddit_posting()`/
+    `publish_gov_news_item()` (neither wired to a public route) ever pass
+    them explicitly."""
     ex = extracted or {}
     now = datetime.now(timezone.utc)
-    date_str = now.strftime("%Y-%m-%d")
+    # posting_date: the ORIGINAL posting date (overridable for backend-ingested
+    # content) — defaults to today for a live app submission, where posting IS
+    # the ingestion moment. ingestion_timestamp (below) is ALWAYS "now",
+    # regardless — "when WE processed it" is a separate concept from "when it
+    # was originally posted." See PATH-B-PROVENANCE-PLAN.md's field table.
+    date_str = posting_date or now.strftime("%Y-%m-%d")
     ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    short = secrets.token_hex(4)
-    case_id = f"{CHANNEL}-{date_str}-{short}"
-    prefix = f"gs://{_bucket_name()}/{date_str}/{CHANNEL}/"
+    if subreddit and reddit_post_id:
+        # Deterministic ID (doubles as a dedup key) for backend-ingested
+        # content with a real source post — matches the scheme from the
+        # original ingestion pipeline spec, rather than a random suffix.
+        case_id = f"{channel}-{date_str}-{subreddit}-{reddit_post_id}"
+    elif source_item_id:
+        # Gov-news scheme (GOV-NEWS-INGESTION-PLAN.md §3.1): deterministic
+        # from the source's stable item id (e.g. an RSS guid), keyed by
+        # source_system so it doubles as the poll pipeline's dedup key.
+        # Leading segment is `channel` exactly, matching the reddit scheme
+        # above and delete_content()'s case_id.split("-", 1)[0] convention.
+        short = hashlib.sha256(source_item_id.encode()).hexdigest()[:8]
+        case_id = f"{channel}-{source_system}-{date_str}-{short}"
+    else:
+        short = secrets.token_hex(4)
+        case_id = f"{channel}-{date_str}-{short}"
+    prefix = f"gs://{_bucket_name()}/{date_str}/{channel}/"
+    if client_platform not in _CLIENT_PLATFORMS:
+        client_platform = ""
+    # Content fingerprint (title+description) — cheap to compute for every
+    # doc kind, but exists specifically so a polling ingestion pipeline
+    # (gov-news) can detect an edited source item without diffing full text
+    # on every poll. See GOV-NEWS-INGESTION-PLAN.md §5.2/§5.3. A shared
+    # helper (not inlined) so the poll script's pre-publish classification
+    # hash can never drift from what actually gets stored.
+    content_hash = content_hash_for(title, description)
 
     groups = {f: _clean_group(f, tags.get(f)) for f in GROUP_FIELDS}
     groups = _normalize_groups(groups)
@@ -751,6 +1359,37 @@ def build_canonical(title: str, description: str, tags: dict,
     if not groups["primary_consulate"] and groups["consulates"]:
         groups["primary_consulate"] = groups["consulates"][0]
 
+    bg = str(ex.get("background_summary") or "").strip() or "<summary_pending_llm>"
+    cq = str(ex.get("concerns_or_questions_summary") or "").strip() or title
+    # Prefer the user-edited stages/dates; fall back to the model's extraction.
+    stages = _clean_stages(key_stages) or _clean_stages(ex.get("key_stages_or_info"))
+    dates = _clean_dates(key_dates) or _clean_dates(ex.get("key_dates"))
+    # Any document with dated milestones gets `timeline` deterministically —
+    # single point of truth for every caller (suggest_tags already adds it too,
+    # so this is normally a no-op there; it also covers callers that build
+    # `tags` directly, e.g. build_experience_canonical()'s own duplicate check).
+    if dates:
+        _add_tag_once(groups, "timeline")
+
+    # I-130 -> family-based-immigration, I-140 -> employment-based-
+    # immigration, deterministically — single point of truth for every
+    # caller, same reasoning as the timeline rule above. Runs BEFORE the
+    # visa backfill below — see the matching comment in suggest_tags() for
+    # why the order matters.
+    if _I130_TAGS & set(groups["tags"]):
+        _add_tag_once(groups, "family-based-immigration")
+    if _I140_TAGS & set(groups["tags"]):
+        _add_tag_once(groups, "employment-based-immigration")
+
+    # Tips/advice/discussion content often references a specific visa's
+    # process tags (e.g. h1b-petition) without a personal status claim, or
+    # a family/employment-based post with no stated detail for a specific
+    # code — both otherwise fail validate()'s visa-required rule. Backfill
+    # deterministically from the post's own tags — single point of truth
+    # for every caller, same reasoning as the timeline rule above. See
+    # _apply_visa_backfill().
+    _apply_visa_backfill(groups)
+
     all_tags = (
         groups["current_visa_or_greencard_category"]
         + groups["visa_applying_for"]
@@ -758,11 +1397,6 @@ def build_canonical(title: str, description: str, tags: dict,
         + groups["tags"]
         + groups["concerns_or_questions_tags"]
     )
-    bg = str(ex.get("background_summary") or "").strip() or "<summary_pending_llm>"
-    cq = str(ex.get("concerns_or_questions_summary") or "").strip() or title
-    # Prefer the user-edited stages/dates; fall back to the model's extraction.
-    stages = _clean_stages(key_stages) or _clean_stages(ex.get("key_stages_or_info"))
-    dates = _clean_dates(key_dates) or _clean_dates(ex.get("key_dates"))
     embedding_text = (
         f"{title}. {bg}. {cq}. Tags: {', '.join(all_tags)}. "
         f"Stages: {', '.join(f'{k}:{v}' for k, v in stages.items())}. "
@@ -772,23 +1406,33 @@ def build_canonical(title: str, description: str, tags: dict,
     return {
         "case_id": case_id,
         # provenance
-        "ingestion_method": "user_post",
-        "source_system": SOURCE_SYSTEM,
-        "channel": CHANNEL,
+        "ingestion_method": ingestion_method,
+        "source_system": source_system or SOURCE_SYSTEM,
+        "channel": channel,
         "source_url": APP_BASE_URL,
         "source_uri": f"{APP_BASE_URL}/case/{case_id}",
-        "subreddit": "",
-        "author_handle": _synthetic_handle(),
-        "full_url": f"{APP_BASE_URL}/case/{case_id}",
+        "subreddit": subreddit,
+        # A fixed per-source handle (e.g. "USCIS") overrides the synthetic
+        # per-item handle for backend-ingested content with a real source
+        # identity — see GOV-NEWS-INGESTION-PLAN.md §3.6. Never generated
+        # per-item for that content: there's no "user" behind it to vary.
+        "author_handle": author_handle or _synthetic_handle(),
+        "full_url": full_url or f"{APP_BASE_URL}/case/{case_id}",
         "post_title": title,
         "language": str(ex.get("language") or "en"),
+        "client_platform": client_platform,
+        "source_item_id": source_item_id,
+        "content_hash": content_hash,
         # timestamps
         "posting_date": date_str,
         "ingestion_timestamp": ts,
         "last_updated_timestamp": ts,
         # quality
         "tagging_confidence": float(ex.get("tagging_confidence") or 0.9),
-        "source_metadata": "Submitted via meridianjourney.ai web composer",
+        "source_metadata": (
+            f"Manually curated from r/{subreddit}" if subreddit
+            else "Submitted via meridianjourney.ai web composer"
+        ),
         "gcs_path": prefix,
         # summaries
         "background_summary": bg,
@@ -814,7 +1458,7 @@ def build_canonical(title: str, description: str, tags: dict,
         # provenance for analytics
         "doc_kind": "post",
         "parent_case_id": "",
-        "reddit_post_id": "",
+        "reddit_post_id": reddit_post_id,
     }
 
 
@@ -826,12 +1470,17 @@ def _markdown_body(title: str, description: str) -> str:
 # Persist: GCS sidecar → documents.import → BigQuery
 # ---------------------------------------------------------------------------
 
-def _write_gcs(canonical: dict, md_body: str) -> tuple[str, str]:
-    """Write .md (first) then .json (last) to the date/channel prefix. Returns (md_uri, json_uri)."""
+def _write_gcs(canonical: dict, md_body: str, base_override: str | None = None) -> tuple[str, str]:
+    """Write .md (first) then .json (last) to the date/channel prefix — or to an
+    explicit `base_override` (used by official_reference for a stable, date-free
+    one-object-per-URL path). Returns (md_uri, json_uri)."""
     bucket_name = _bucket_name()
     case_id = canonical["case_id"]
     date_str = canonical["posting_date"]
-    base = f"{date_str}/{CHANNEL}/{case_id}"
+    # Bug fixed: this used to reference the module-level CHANNEL constant
+    # ("app") unconditionally, so backend-ingested (channel="reddit") content
+    # would land under an "app/" GCS prefix regardless of its real channel.
+    base = base_override or f"{date_str}/{canonical['channel']}/{case_id}"
     client = storage.Client(project=_project())
     bucket = client.bucket(bucket_name)
     bucket.blob(f"{base}.md").upload_from_string(md_body, content_type="text/markdown")
@@ -897,7 +1546,9 @@ def _import_to_datastore(canonical: dict, md_uri: str) -> None:
 
 
 _BQ_SCHEMA_FIELDS = [
-    ("case_id", "STRING"), ("source_system", "STRING"), ("source_uri", "STRING"),
+    ("case_id", "STRING"), ("channel", "STRING"), ("ingestion_method", "STRING"),
+    ("client_platform", "STRING"),
+    ("source_system", "STRING"), ("source_uri", "STRING"),
     ("subreddit", "STRING"), ("full_url", "STRING"), ("post_title", "STRING"),
     ("language", "STRING"), ("posting_date", "DATE"), ("ingestion_timestamp", "TIMESTAMP"),
     ("last_updated_timestamp", "TIMESTAMP"), ("tagging_confidence", "FLOAT64"),
@@ -912,11 +1563,17 @@ _BQ_SCHEMA_FIELDS = [
     ("derived_topic_cluster", "STRING", "REPEATED"), ("key_stages_or_info", "JSON"),
     ("key_dates", "JSON"), ("embedding_text", "STRING"), ("doc_kind", "STRING"),
     ("parent_case_id", "STRING"), ("reddit_post_id", "STRING"), ("pipeline_run_id", "STRING"),
+    ("source_item_id", "STRING"), ("content_hash", "STRING"),
 ]
 
 
 def _ensure_bq_table(client, dataset_id: str, table_id: str):
-    """Create the postings dataset + postings_metadata table if they don't exist."""
+    """Create the postings dataset + postings_metadata table if they don't exist;
+    if the table already exists, add any _BQ_SCHEMA_FIELDS columns it's missing
+    (BigQuery allows adding NULLABLE columns to a live table with no downtime).
+    Without this, adding a new field here + to the row dict in _write_bigquery
+    would silently break every future insert against an already-existing table
+    — insert_rows_json rejects rows with fields the live schema doesn't have."""
     from google.cloud import bigquery
     from google.api_core.exceptions import NotFound
 
@@ -926,14 +1583,23 @@ def _ensure_bq_table(client, dataset_id: str, table_id: str):
         ds = bigquery.Dataset(f"{client.project}.{dataset_id}")
         ds.location = "US"
         client.create_dataset(ds, exists_ok=True)
+
+    schema = [bigquery.SchemaField(f[0], f[1], mode=(f[2] if len(f) > 2 else "NULLABLE"))
+              for f in _BQ_SCHEMA_FIELDS]
     try:
-        return client.get_table(table_id)
+        table = client.get_table(table_id)
     except NotFound:
-        schema = [bigquery.SchemaField(f[0], f[1], mode=(f[2] if len(f) > 2 else "NULLABLE"))
-                  for f in _BQ_SCHEMA_FIELDS]
         table = bigquery.Table(table_id, schema=schema)
         table.time_partitioning = bigquery.TimePartitioning(field="posting_date")
         return client.create_table(table, exists_ok=True)
+
+    existing_names = {f.name for f in table.schema}
+    missing = [f for f in schema if f.name not in existing_names]
+    if missing:
+        table.schema = list(table.schema) + missing
+        table = client.update_table(table, ["schema"])
+        print(f"posting: added BQ column(s): {[f.name for f in missing]}")
+    return table
 
 
 def _pipeline_run_id() -> str:
@@ -973,9 +1639,37 @@ def purge_test_bq_rows(marker_prefix: str = "test-") -> int:
         return 0
 
 
-def _write_bigquery(canonical: dict) -> None:
+def _write_bigquery(canonical: dict, pipeline_run_id: str = "", delete_existing: bool = False) -> None:
     """Append a row to postings.postings_metadata (self-provisions dataset+table;
-    non-blocking for the user if BQ is unavailable)."""
+    non-blocking for the user if BQ is unavailable). `pipeline_run_id` lets a
+    caller other than the live web/mobile route (e.g. a Reddit curation script)
+    stamp its own marker instead of the _pipeline_run_id() env-var default.
+
+    `delete_existing=True` (gov-news re-publishes of an edited source item,
+    GOV-NEWS-INGESTION-PLAN.md §5.3) deletes any prior row for this case_id
+    before inserting, so an edit updates in place instead of appending a
+    duplicate — insert_rows_json alone only ever appends.
+
+    The guard is on `ingestion_timestamp`, NOT `posting_date` — deliberately
+    different from purge_test_bq_rows()'s `posting_date < CURRENT_DATE()`
+    pattern, even though the underlying BigQuery constraint (rows sit in a
+    streaming buffer for up to ~90 min and can't be DELETEd during that
+    window) is the same one both guards exist for. purge_test_bq_rows()'s
+    rows are never backdated, so `posting_date` and "when the row was
+    inserted" are always the same day there — but gov-news content IS
+    backdated (posting_date is the source's real, possibly months-old,
+    original publish date; see build_canonical()'s date_str). Guarding on
+    posting_date here would evaluate "before today" for a historical article
+    inserted moments ago during a backfill, letting a DELETE through against
+    a row still genuinely in the streaming buffer — the exact error this
+    guard exists to avoid. Guarding on `ingestion_timestamp` instead checks
+    actual insert recency, which is what the streaming-buffer restriction
+    actually depends on, regardless of the content's own date. A same-day
+    (recent-ingestion) edit's DELETE is therefore a safe no-op (0 rows
+    affected, not an error) that leaves a temporary duplicate resolved by a
+    later edit or the dedup map's latest-by-ingestion_timestamp read — never
+    called for a brand-new item, where there's nothing to delete either
+    way."""
     try:
         from google.cloud import bigquery  # noqa: F401
     except ImportError:
@@ -986,6 +1680,9 @@ def _write_bigquery(canonical: dict) -> None:
     table_id = f"{_project()}.postings.postings_metadata"
     row = {
         "case_id": canonical["case_id"],
+        "channel": canonical["channel"],
+        "ingestion_method": canonical["ingestion_method"],
+        "client_platform": canonical.get("client_platform", ""),
         "source_system": canonical["source_system"],
         "source_uri": canonical["source_uri"],
         "subreddit": canonical["subreddit"],
@@ -1016,10 +1713,19 @@ def _write_bigquery(canonical: dict) -> None:
         "doc_kind": canonical["doc_kind"],
         "parent_case_id": canonical["parent_case_id"],
         "reddit_post_id": canonical["reddit_post_id"],
-        "pipeline_run_id": _pipeline_run_id(),
+        "pipeline_run_id": pipeline_run_id or _pipeline_run_id(),
+        "source_item_id": canonical.get("source_item_id", ""),
+        "content_hash": canonical.get("content_hash", ""),
     }
     try:
         _ensure_bq_table(client, "postings", table_id)
+        if delete_existing:
+            sql = (f"DELETE FROM `{table_id}` "
+                   f"WHERE case_id = @case_id "
+                   f"AND ingestion_timestamp < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 MINUTE)")
+            cfg = bigquery.QueryJobConfig(query_parameters=[
+                bigquery.ScalarQueryParameter("case_id", "STRING", canonical["case_id"])])
+            client.query(sql, job_config=cfg).result()
         errors = client.insert_rows_json(table_id, [row])
         if errors:
             print(f"posting: BQ insert errors: {errors}")
@@ -1028,8 +1734,13 @@ def _write_bigquery(canonical: dict) -> None:
 
 
 def publish_posting(title: str, description: str, tags: dict,
-                    key_stages: dict | None = None, key_dates: dict | None = None) -> dict:
-    """Full publish path. Returns {case_id, gcs_path, indexed, author_handle}."""
+                    key_stages: dict | None = None, key_dates: dict | None = None,
+                    client_platform: str = "") -> dict:
+    """Full publish path. Returns {case_id, gcs_path, indexed, author_handle}.
+    `client_platform` ("web"/"ios"/"android") is a soft analytics field the
+    caller (the composer UI) reports about itself — see
+    docs/ingestion/PATH-B-PROVENANCE-PLAN.md. Invalid/unknown values are
+    clamped to "" inside build_canonical(), never rejected."""
     # Redact PII (email / phone / A-number) before anything is tagged, written to
     # GCS, indexed, or sent to BigQuery — postings are read by other users, so
     # contact info must never survive into the stored content. Local import
@@ -1050,7 +1761,8 @@ def publish_posting(title: str, description: str, tags: dict,
     except Exception as e:  # noqa: BLE001 - fall back to placeholders if the tagger fails
         print(f"posting: extraction for context failed ({e}); using placeholders")
 
-    canonical = build_canonical(title, description, tags, key_stages, key_dates, extracted)
+    canonical = build_canonical(title, description, tags, key_stages, key_dates, extracted,
+                                client_platform=client_platform)
     errs = validate(canonical)
     if errs:
         raise ValueError("; ".join(errs))
@@ -1058,6 +1770,382 @@ def publish_posting(title: str, description: str, tags: dict,
     md_uri, _json_uri = _write_gcs(canonical, _markdown_body(title, description))
     _import_to_datastore(canonical, md_uri)
     _write_bigquery(canonical)
+    return {
+        "case_id": canonical["case_id"],
+        "gcs_path": canonical["gcs_path"],
+        "indexed": True,
+        "author_handle": canonical["author_handle"],
+    }
+
+
+def publish_reddit_posting(title: str, description: str, tags: dict,
+                           subreddit: str, reddit_post_id: str, full_url: str,
+                           posting_date: str, key_stages: dict | None = None,
+                           key_dates: dict | None = None,
+                           extracted: dict | None = None) -> dict:
+    """Publish path for backend-ingested (Reddit) content — Path B, see
+    docs/ingestion/PATH-B-PROVENANCE-PLAN.md. Deliberately NOT wired to any
+    FastAPI route: channel/ingestion_method/source_system/posting_date are
+    trust-sensitive (a public route accepting them would let any user spoof
+    Reddit provenance or backdate a post), so this is only ever called from
+    a local script with direct repo/GCP access, never over HTTP.
+
+    Unlike publish_posting(), this does NOT call profile.scrub_pii() or
+    moderation.check_text() — Reddit content is already public (D-017: not
+    treated as containing sensitive PII the way a live user's private
+    submission is) and is expected to have already passed human curator
+    review before this is called. Returns the same shape as
+    publish_posting()."""
+    canonical = build_canonical(
+        title, description, tags, key_stages, key_dates, extracted,
+        channel="reddit", ingestion_method="manual_curation", source_system="reddit",
+        subreddit=subreddit, reddit_post_id=reddit_post_id, full_url=full_url,
+        posting_date=posting_date,
+    )
+    errs = validate(canonical)
+    if errs:
+        raise ValueError("; ".join(errs))
+
+    md_uri, _json_uri = _write_gcs(canonical, _markdown_body(title, description))
+    _import_to_datastore(canonical, md_uri)
+    _write_bigquery(canonical, pipeline_run_id="reddit-manual-curation")
+    return {
+        "case_id": canonical["case_id"],
+        "gcs_path": canonical["gcs_path"],
+        "indexed": True,
+        "author_handle": canonical["author_handle"],
+    }
+
+
+def _gov_news_tags(extracted_tags: list[str], content_type: str) -> list[str]:
+    """Deterministically add `news-update` when — and only when —
+    content_type == "news"; STRIP it otherwise, even if already present.
+    Pure/no-network on purpose: this is the exact decision
+    docs/ingestion/GOV-NEWS-MULTI-SOURCE-CONFIG.md §5 documents (a news
+    source's content gets tagged as a news update; a forum posting's
+    content does not, since it isn't one), pulled out of
+    publish_gov_news_item() so it's unit-testable without GCP — see
+    tests/test_posting_tagging.py.
+
+    The strip half matters because `news-update` is a real, LLM-selectable
+    vocabulary entry (tags-cleaned/1.10-common-misc.csv) — _extract() can
+    legitimately choose it on its own for content that reads like
+    policy/news (e.g. a forum post about a visa fee change), independent
+    of this function. A version that only ever ADDED the tag for
+    content_type=="news" left that model-chosen tag untouched for every
+    other content_type, which is exactly backwards from "can never be
+    applied" — confirmed live: a real immihelp (content_type=
+    'forum_posting') posting titled 'US visa fees going up...' came back
+    from _extract() with `news-update` already in its tags, and the old
+    implementation passed it straight through. See E45a in
+    tests/test_posting_tagging.py."""
+    tags = list(dict.fromkeys(extracted_tags))
+    if content_type == "news":
+        if "news-update" not in tags:
+            tags.append("news-update")
+        return tags
+    return [t for t in tags if t != "news-update"]
+
+
+def publish_gov_news_item(title: str, description: str, source_system: str,
+                          author_handle: str, source_item_id: str, full_url: str,
+                          posting_date: str, channel: str = "gov_news",
+                          content_type: str = "news",
+                          is_edit: bool = False) -> dict:
+    """Publish path for automated government-agency news ingestion — see
+    docs/ingestion/GOV-NEWS-INGESTION-PLAN.md. Deliberately NOT wired to any
+    FastAPI route, same reasoning as publish_reddit_posting(): only ever
+    called from the scheduled poll script (scripts/curation/poll_gov_news.py),
+    never over HTTP.
+
+    Unlike publish_reddit_posting(), tagging is fully automated — no human
+    curator review step, which is the whole point of this source (§2: no
+    curation bottleneck) — so this runs _extract() itself rather than
+    accepting caller-supplied tags. Also skips scrub_pii()/
+    moderation.check_text() like publish_reddit_posting() (official
+    government content, not a live user submission).
+
+    `content_type` — the caller's `news_sources` registry entry's field
+    (GOV-NEWS-MULTI-SOURCE-CONFIG.md §5) — gates the deterministic
+    `news-update` tag explicitly, not implicitly: this function only ever
+    gets *called* for a `content_type="news"` source today, because
+    `news_sources.get_enabled_sources()` already excludes anything else
+    (§5.2 of that doc) — but that's an upstream filter, not a check *in*
+    this function. Requiring the caller to state `content_type` here too,
+    and only tagging `news-update` when it's `"news"`, means a future
+    change to the dispatch logic (a bug, a refactor, a new caller) can't
+    silently start tagging forum/user-posting content as an official news
+    update — the guarantee holds at the point of tagging, not just at the
+    point of dispatch.
+
+    `is_edit=True` (the poll script detected a changed content_hash for an
+    already-known source_item_id) triggers a delete-before-insert in
+    BigQuery so the edit updates in place instead of duplicating — see
+    _write_bigquery()'s `delete_existing` param and GOV-NEWS-INGESTION-PLAN.md
+    §5.3. Returns the same shape as publish_posting()."""
+    try:
+        extracted = _extract(title, description)
+    except Exception as e:  # noqa: BLE001 - publish with minimal tags rather than fail the whole poll run
+        print(f"posting: extraction for gov-news item failed ({e}); publishing with minimal tags")
+        extracted = {}
+
+    tags = dict(extracted)
+    tags["tags"] = _gov_news_tags(extracted.get("tags") or [], content_type)
+
+    canonical = build_canonical(
+        title, description, tags,
+        extracted.get("key_stages_or_info"), extracted.get("key_dates"), extracted,
+        channel=channel, ingestion_method="rss_feed", source_system=source_system,
+        full_url=full_url, posting_date=posting_date,
+        author_handle=author_handle, source_item_id=source_item_id,
+    )
+    # Same post-hoc override pattern as build_experience_canonical()/
+    # publish_connect_card() (doc_kind isn't a build_canonical() param).
+    # doc_kind, not channel, is what the datastore actually has registered
+    # as an indexable/filterable field today (confirmed live: `channel` is
+    # present in the schema but as a bare {"type": "string"} — not
+    # indexable/searchable/dynamicFacetable — so `channel: ANY(...)` filter
+    # expressions 400. `doc_kind` is fully indexed, same as "post"/
+    # "experience"/"connect_card" already rely on.). This is what the News
+    # tab's search facet actually filters on — see GOV-NEWS-INGESTION-PLAN.md §7.
+    canonical["doc_kind"] = "gov_news"
+    errs = validate(canonical)
+    if errs:
+        raise ValueError("; ".join(errs))
+
+    md_uri, _json_uri = _write_gcs(canonical, _markdown_body(title, description))
+    _import_to_datastore(canonical, md_uri)
+    _write_bigquery(canonical, pipeline_run_id="gov-news-poll", delete_existing=is_edit)
+    return {
+        "case_id": canonical["case_id"],
+        "gcs_path": canonical["gcs_path"],
+        "indexed": True,
+        "author_handle": canonical["author_handle"],
+    }
+
+
+def _bq_content_hash(source_system: str, source_item_id: str) -> str | None:
+    """Latest stored content_hash for one (source_system, source_item_id) pair —
+    the dedup guardrail so an UNCHANGED official-reference page is not re-ingested
+    on a repeat run. Mirrors gov_news_poll._existing_hashes()' content-hash check,
+    scoped to a single item. Returns None if never ingested, or on any BigQuery
+    error (fail-open: a lookup failure must not block a legitimate publish)."""
+    try:
+        from google.cloud import bigquery
+        client = bigquery.Client(project=_project())
+        sql = (
+            f"SELECT content_hash FROM `{_project()}.postings.postings_metadata` "
+            "WHERE source_system=@ss AND source_item_id=@sid "
+            "ORDER BY ingestion_timestamp DESC LIMIT 1"
+        )
+        cfg = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("ss", "STRING", source_system),
+            bigquery.ScalarQueryParameter("sid", "STRING", source_item_id),
+        ])
+        for row in client.query(sql, job_config=cfg).result():
+            return row["content_hash"]
+    except Exception as e:  # noqa: BLE001 - fail-open on lookup error
+        print(f"posting: official-reference dedup lookup failed ({e}); proceeding with publish")
+    return None
+
+
+def publish_official_reference_item(
+    title: str, body_text: str, source_system: str, full_url: str,
+    as_of_date: str = "", author_handle: str = "", dry_run: bool = False,
+    skip_if_unchanged: bool = True,
+) -> dict:
+    """Publish an authoritative, static official-reference page (e.g. ICE SEVIS,
+    a USCIS policy page, a Visa Bulletin narrative) into DS-1 for grounding —
+    the Phase-2 "authoritative official data" path in
+    docs/ingestion/GROUNDING-INGESTION-PLAN.md. NOT wired to any HTTP route.
+
+    Like publish_gov_news_item() (fully-automated _extract() tagging; skips
+    scrub_pii()/moderation.check_text() — official government content, not a
+    live user submission), but:
+      - doc_kind = "official_reference" — evergreen reference, NOT "gov_news",
+        so it is deliberately NOT carved out of free-text search by the News
+        tab's 7-day recency rule (GROUNDING-INGESTION-PLAN.md); it should always
+        be groundable.
+      - channel = "official", ingestion_method = "official_fetch".
+      - never tagged "news-update" (it isn't news) — the strip half of
+        _gov_news_tags() guarantees this even if _extract() self-selects it.
+
+    One stable doc per URL: case_id = official-{source_system}-{sha8(full_url)}
+    (keyed on the URL only — NOT the date). Re-ingesting a CHANGED page upserts
+    the SAME datastore doc / GCS object / BigQuery row in place; there is never
+    more than one doc per page and no dated versions to orphan. `as_of_date` is
+    OPTIONAL metadata (the page's effective / "last updated" date, stored as
+    posting_date for "as of {date}" citations; defaults to today).
+
+    `skip_if_unchanged=True` (the default) is the dedup guardrail: before doing
+    any work, it compares this page's content_hash to the last-stored hash for
+    (source_system, full_url) and SKIPS the whole publish — no _extract(), no
+    GCS/datastore/BigQuery write — when identical. So a repeat run over an
+    unchanged page is a no-op; a changed page re-publishes (and INCREMENTAL
+    import upserts the same case_id). Skipped for `dry_run`.
+
+    `dry_run=True` builds + validates the canonical and returns it (under the
+    "canonical" key) WITHOUT any GCS/datastore/BigQuery write — for tests and a
+    safe driver default."""
+    # Effective date is metadata only (the case_id is URL-stable, below), so it's
+    # optional and defaults to today.
+    as_of_date = as_of_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Dedup guardrail: same content fingerprint the gov-news poll uses. Skip a
+    # real publish entirely when this source's last-stored content_hash matches
+    # — no re-run of _extract() (Gemini) or re-write of GCS/datastore/BigQuery.
+    content_hash = content_hash_for(title, body_text)
+    if skip_if_unchanged and not dry_run:
+        prior = _bq_content_hash(source_system, full_url)
+        if prior is not None and prior == content_hash:
+            print(f"posting: official-reference {full_url} unchanged (content_hash match) — skipping")
+            return {
+                "skipped": True,
+                "reason": "unchanged",
+                "indexed": False,
+                "content_hash": content_hash,
+                "full_url": full_url,
+            }
+
+    try:
+        extracted = _extract(title, body_text)
+    except Exception as e:  # noqa: BLE001 - publish with minimal tags rather than fail
+        print(f"posting: extraction for official-reference item failed ({e}); publishing with minimal tags")
+        extracted = {}
+
+    tags = dict(extracted)
+    # Official reference is NOT news — strip any model-chosen `news-update`
+    # (reuses the deterministic strip half of _gov_news_tags for a non-"news"
+    # content_type).
+    tags["tags"] = _gov_news_tags(extracted.get("tags") or [], "official_reference")
+
+    canonical = build_canonical(
+        title, body_text, tags,
+        extracted.get("key_stages_or_info"), extracted.get("key_dates"), extracted,
+        channel="official", ingestion_method="official_fetch",
+        source_system=source_system, full_url=full_url,
+        posting_date=as_of_date, author_handle=author_handle,
+        source_item_id=full_url,
+    )
+    # Post-hoc override, same pattern as publish_gov_news_item(): doc_kind (not
+    # channel) is the indexable/filterable field.
+    canonical["doc_kind"] = "official_reference"
+    # One stable doc per URL: re-key the case_id (and the GCS object + source_uri)
+    # on the URL only — NOT the effective date — so a changed page upserts the
+    # SAME doc in place instead of minting a new dated version. build_canonical's
+    # default scheme embeds posting_date in the id, which we deliberately drop
+    # here. `as_of_date`/posting_date stays as metadata.
+    short = hashlib.sha256(full_url.encode()).hexdigest()[:8]
+    stable_id = f"official-{source_system}-{short}"
+    gcs_base = f"official/{source_system}/{stable_id}"
+    canonical["case_id"] = stable_id
+    canonical["source_uri"] = f"{APP_BASE_URL}/case/{stable_id}"
+    canonical["gcs_path"] = f"gs://{_bucket_name()}/official/{source_system}/"
+    errs = validate(canonical)
+    if errs:
+        raise ValueError("; ".join(errs))
+
+    result = {
+        "case_id": stable_id,
+        "gcs_path": canonical["gcs_path"],
+        "author_handle": canonical["author_handle"],
+    }
+    if dry_run:
+        result["indexed"] = False
+        result["dry_run"] = True
+        result["canonical"] = canonical
+        return result
+
+    md_uri, _json_uri = _write_gcs(canonical, _markdown_body(title, body_text), base_override=gcs_base)
+    _import_to_datastore(canonical, md_uri)
+    # delete-before-insert keeps the analytics table at one row per stable case_id.
+    _write_bigquery(canonical, pipeline_run_id="official-reference", delete_existing=True)
+    result["indexed"] = True
+    return result
+
+
+def publish_immihelp_posting(title: str, description: str, source_item_id: str,
+                             full_url: str, posting_date: str, dry_run: bool = False) -> dict:
+    """One-time, bounded sample-seed publish path for immihelp.com/experiences/
+    postings — see docs/ingestion/IMMIHELP-SEED-PLAN.md. Deliberately NOT
+    wired to any FastAPI route, same reasoning as publish_reddit_posting()/
+    publish_gov_news_item(): source_system/posting_date/channel are
+    trust-sensitive. Deliberately NOT part of the Firestore news_sources/
+    Cloud Scheduler framework (GOV-NEWS-MULTI-SOURCE-CONFIG.md) either —
+    immihelp's Terms of Use §12 reserves all rights and requires prior
+    written consent for reproduction/commercial use, which this project
+    doesn't have, so this is only ever invoked from
+    scripts/curation/seed_immihelp.py's bounded one-time run, never on a
+    recurring schedule.
+
+    Unlike publish_reddit_posting() (which treats already-public,
+    human-curator-reviewed Reddit content as pre-vetted and skips PII/
+    moderation checks), this DOES call scrub_pii()/moderation.check_text() —
+    there's no per-item human review step here (tagging is fully automated
+    via _extract(), same as publish_gov_news_item() and the live API's own
+    path, per explicit request), and real immihelp postings have been
+    observed containing pasted emails/personal details that a review step
+    would normally catch.
+
+    Deliberately does NOT accept or forward a real author identity: no
+    consent exists to attribute a real, identifiable immihelp user's handle
+    on this commercial product, so — like the Reddit/gov-news paths —
+    author_handle is left to build_canonical()'s synthetic default. Same
+    reasoning is why backend/immihelp_seed.py's parser drops `username`/
+    `postedBy`/`ipAddress` from the source payload before this function
+    ever sees a candidate.
+
+    content_type is always "forum_posting" (never "news") — reuses
+    _gov_news_tags() so the deterministic `news-update` tag (meaning
+    "official policy/news, not a personal experience") can never be
+    applied here, same explicit-not-implicit guarantee as
+    GOV-NEWS-MULTI-SOURCE-CONFIG.md §5.2a. An _extract() failure is left to
+    propagate (unlike publish_gov_news_item(), which falls back to minimal
+    tags) — the whole point of this path is "only what's genuinely
+    publishable," so the caller (seed_immihelp.py) treats a failed/rejected
+    item as a skip, not a degraded publish. Returns the same shape as
+    publish_posting().
+
+    `dry_run=True` runs the full pipeline through tagging + validate() —
+    the real signal of "would this be published" — but stops short of the
+    GCS/Discovery Engine/BigQuery writes, returning
+    {"case_id", "would_publish": True, "tags": [...], "author_handle"}
+    instead. Lets scripts/curation/seed_immihelp.py --dry-run report real
+    would-publish/would-skip counts (spending the same Gemini calls a real
+    run would) without writing anything to production."""
+    from profile import scrub_pii
+    title = scrub_pii(title or "")
+    description = scrub_pii(description or "")
+
+    import moderation
+    moderation.check_text(f"{title}\n\n{description}")
+
+    extracted = _extract(title, description)
+
+    tags = dict(extracted)
+    tags["tags"] = _gov_news_tags(extracted.get("tags") or [], "forum_posting")
+
+    canonical = build_canonical(
+        title, description, tags,
+        extracted.get("key_stages_or_info"), extracted.get("key_dates"), extracted,
+        channel="immihelp", ingestion_method="automated_scrape", source_system="immihelp",
+        full_url=full_url, posting_date=posting_date, source_item_id=source_item_id,
+    )
+    errs = validate(canonical)
+    if errs:
+        raise ValueError("; ".join(errs))
+
+    if dry_run:
+        return {
+            "case_id": canonical["case_id"],
+            "would_publish": True,
+            "tags": canonical.get("tags", []),
+            "author_handle": canonical["author_handle"],
+        }
+
+    md_uri, _json_uri = _write_gcs(canonical, _markdown_body(title, description))
+    _import_to_datastore(canonical, md_uri)
+    _write_bigquery(canonical, pipeline_run_id="immihelp-one-time-seed")
     return {
         "case_id": canonical["case_id"],
         "gcs_path": canonical["gcs_path"],
@@ -1079,7 +2167,7 @@ _MILESTONE_DATE_KEY = {
     "visa_interview": "visa_interview_date", "visa_stamping": "visa_stamp_date",
     "port_of_entry": "admission_date", "h1b_filing": "h1b_filed_date",
     "h1b_approval": "h1b_approved_date", "h1b_rfe": "rfe_date",
-    "opt_application": "i765_filed_date", "perm_filing": "labor_cert_filed_date",
+    "opt_application": "ead_filed_date", "perm_filing": "labor_cert_filed_date",
     "perm_approval": "perm_approved_date", "i140_approval": "i140_approved_date",
     "i485_filing": "i485_filed_date", "biometrics": "biometrics_appointment_date",
     "aos_interview": "aos_appointment_date", "ead_approval": "ead_approved_date",
@@ -1217,7 +2305,13 @@ def delete_content(case_id: str) -> None:
         print(f"posting.delete_content: datastore delete failed ({e})")
     m = re.search(r"(\d{4}-\d{2}-\d{2})", case_id)
     if m:
-        base = f"{m.group(1)}/{CHANNEL}/{case_id}"
+        # Bug fixed: this used to hardcode CHANNEL ("app"), so deleting a
+        # channel="reddit" doc's GCS sidecars would silently look in the
+        # wrong prefix and leave them orphaned. case_id always starts with
+        # "<channel>-" (app-, app-exp-, app-connect-, reddit-, ...), so its
+        # own leading segment is the correct channel regardless of shape.
+        channel_prefix = case_id.split("-", 1)[0] or CHANNEL
+        base = f"{m.group(1)}/{channel_prefix}/{case_id}"
         try:
             bkt = storage.Client(project=project).bucket(_bucket_name())
             for ext in (".md", ".json"):

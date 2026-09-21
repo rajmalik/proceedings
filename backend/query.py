@@ -21,8 +21,13 @@ from google import genai
 from google.cloud import firestore
 
 
-# The fallback message when the answer isn't grounded in the datastore.
-FALLBACK_MESSAGE = "I don't have that information — please contact the firm directly."
+# The fallback message when the answer isn't grounded in the datastore. Kept in
+# sync with search_client.FALLBACK_MESSAGE (self-service wording — no firm to
+# contact, no legal advice).
+FALLBACK_MESSAGE = (
+    "I couldn't find a grounded answer to that in our sources. Try rephrasing your "
+    "question, or browse related community postings."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -129,9 +134,15 @@ def classify_intent(message: str) -> str:
 # Firestore Q&A Storage
 # ---------------------------------------------------------------------------
 
-def save_qa_pair(question: str, result: dict, db: firestore.Client) -> str:
+def save_qa_pair(question: str, result: dict, db: firestore.Client,
+                 route: str = "", source_tier: str = "") -> str:
     """
     Save a question-answer pair to Firestore. Returns the document ID.
+
+    `route` is the AI-Assist routing decision for this turn
+    (answer-gov|answer-community|post|timeline-find|clarify) and `source_tier`
+    is which grounding tier answered (gov|community|ungrounded). Both default to
+    "" so existing callers (/api/ask, /api/chat) are unaffected.
     """
     doc = {
         "question": question,
@@ -141,6 +152,8 @@ def save_qa_pair(question: str, result: dict, db: firestore.Client) -> str:
         "created_at": firestore.SERVER_TIMESTAMP,
         "is_fallback": result["is_fallback"],
         "helpful": None,
+        "route": route,
+        "source_tier": source_tier,
     }
     _, doc_ref = db.collection("qa_pairs").add(doc)
     return doc_ref.id

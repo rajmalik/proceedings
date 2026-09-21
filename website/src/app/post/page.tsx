@@ -1,11 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense,useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { getActiveUser, userHeaders } from '@/lib/activeUser'
+import { useSearchParams } from 'next/navigation'
+import { getActiveUser, userHeaders, DEMO_PICKER_ENABLED } from '@/lib/activeUser'
 import { useRequireUser } from '@/lib/useRequireUser'
+import { useAuth } from '@/contexts/AuthContext'
+import { readAndClearPostDraft } from '@/lib/assistDraft'
+import { mergeReconcile } from '@/lib/postReconcile'
 
-type Conflict = { field: string; profile_value: unknown; message_value: unknown }
+type Conflict = { field: string; profile_value?: unknown; message_value: unknown; message?: string }
 
 type Groups = {
   visa_applying_for: string[]
@@ -50,8 +54,26 @@ const POSTING_TYPE_LABEL: Record<string, string> = {
   general_question: 'General question',
 }
 
-export default function PostPage() {
+// Discussion/blog mode: `/post?type=discussion` (or `blog`) reuses this same
+// composer to create a Discussions-feed entry — a general topic/how-to write-up
+// NOT tied to one person's case. In that mode the posting carries the
+// `discussion` (or `blog`) controlled-vocab tag, the visa/consulate/stages
+// sections are hidden, and the visa gate is relaxed (a general post needs no
+// personal visa). Everything else — tag-suggest, moderation, indexing — is the
+// same pipeline, so the new post shows up in /discussions automatically.
+const DISCUSSION_KINDS = ['discussion', 'blog'] as const
+type PostKind = (typeof DISCUSSION_KINDS)[number] | ''
+const KIND_LABEL: Record<string, string> = { discussion: 'Discussion', blog: 'Blog / how-to' }
+
+function PostPageInner() {
   useRequireUser()
+  const params = useSearchParams()
+  const { user, loading: authLoading } = useAuth()
+  const [kind, setKind] = useState<PostKind>(() => {
+    const t = params.get('type')
+    return t === 'blog' || t === 'discussion' ? t : ''
+  })
+  const isDiscussion = kind === 'discussion' || kind === 'blog'
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [groups, setGroups] = useState<Groups>(EMPTY)
@@ -83,6 +105,15 @@ export default function PostPage() {
     })).catch(() => {})
   }, [])
 
+  // Keep the discussion/blog tag in sync with the selected kind (initial mount
+  // + whenever the user toggles Discussion ⇄ Blog).
+  useEffect(() => {
+    setGroups((g) => {
+      const rest = g.tags.filter((t) => t !== 'discussion' && t !== 'blog')
+      return { ...g, tags: kind ? [...rest, kind] : rest }
+    })
+  }, [kind])
+
   const vocabSets = useMemo(() => ({
     visa: new Set(vocab.visa), consulate: new Set(vocab.consulate), tag: new Set(vocab.tag),
     stage_key: new Set(vocab.stage_key), date_key: new Set(vocab.date_key),
@@ -93,8 +124,84 @@ export default function PostPage() {
   const consulateByCode = useMemo(() => new Map(vocab.consulate_options.map((o) => [o.code, o.label])), [vocab])
 
   const canPreview = title.trim().length >= 3 && description.trim().length >= 10
-  const hasVisa = groups.visa_applying_for.length > 0 || groups.current_visa_or_greencard_category.length > 0
-  const visibleSections = SECTIONS.filter((s) => ALWAYS.includes(s.field) || relevant.includes(s.field))
+  // family-immigration / employment-immigration (backend: posting.py's
+  // _apply_visa_backfill()) are a LAST-RESORT fallback meant for manual
+  // curation, where there's no original poster left to ask for more detail.
+  // A live app user is right here and can always be asked directly instead
+  // — so unlike curated content, a generic code should never be enough to
+  // satisfy this gate on its own. Still shown as a chip (removable, same as
+  // any other tag) so the user sees what was inferred and can either
+  // replace it with a specific code or add one alongside it.
+  const GENERIC_VISA_FALLBACKS = new Set(['family-immigration', 'employment-immigration'])
+  const hasSpecificVisa = (arr: string[]) => arr.some((v) => !GENERIC_VISA_FALLBACKS.has(v))
+  const hasVisa = hasSpecificVisa(groups.visa_applying_for) || hasSpecificVisa(groups.current_visa_or_greencard_category)
+  const hasOnlyGenericVisa = !hasVisa && (groups.visa_applying_for.length > 0 || groups.current_visa_or_greencard_category.length > 0)
+  // In discussion/blog mode only the topic-tag sections apply — the visa,
+  // status and consulate sections belong to personal-case postings.
+  const visibleSections = SECTIONS.filter((s) =>
+    isDiscussion ? s.vocab === 'tag' : (ALWAYS.includes(s.field) || relevant.includes(s.field)))
+
+  // Keep exactly one discussion/blog tag on the posting in discussion mode
+  // (swapped when the user toggles kind), and none of them otherwise. Used
+  // wherever `groups` is (re)set — mount, preview result, submit — so the tag
+  // survives a tag-suggest pass that didn't happen to emit it.
+  const ensureKindTags = (tags: string[]): string[] => {
+    const rest = tags.filter((t) => !(DISCUSSION_KINDS as readonly string[]).includes(t))
+    return isDiscussion ? [...rest, kind] : rest
+  }
+
+  // Reconcile the message groups against the saved profile (best-effort, only
+  // with an active user) and apply the result to the composer. Shared by
+  // preview() (tag-suggest path) and the AI-Assist draft mount effect so both
+  // run the SAME profile-reconcile step (D1/D3).
+  async function applyTagResult(g: Groups, st: KV, dt: KV) {
+    let applied = false
+    if (getActiveUser()) {
+      try {
+        const rr = await fetch('/api/reconcile', {
+          method: 'POST', headers: userHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ message: { ...g, key_stages_or_info: st, key_dates: dt } }),
+        })
+        if (rr.ok) {
+          const a = mergeReconcile(g, st, dt, await rr.json())
+          setGroups({ ...a.groups, tags: ensureKindTags(a.groups.tags) }); setStages(a.stages); setDates(a.dates)
+          setConflicts(a.conflicts); setExplainer(a.explainer); setPrefilled(a.prefilled)
+          applied = true
+        }
+      } catch { /* no active user / reconcile unavailable — post without it */ }
+    }
+    if (!applied) { setGroups({ ...g, tags: ensureKindTags(g.tags) }); setStages(st); setDates(dt) }
+    setPreviewed(true)
+  }
+
+  // AI-Assist hand-off: if a draft was stashed by the assistant, pre-fill /post
+  // from it once, run it through the same reconcile step, then clear it
+  // (read-once). No draft -> normal empty composer. (Q11/C2, D1/D3)
+  //
+  // Gated on identity: an anonymous visitor is bounced to /login by
+  // useRequireUser, so we must NOT read-and-clear the draft on that pre-login
+  // mount — otherwise it's consumed and gone after sign-in. Only consume once an
+  // identity exists (after the ?next=/post round-trip), or in dev/demo where
+  // there's no forced login. Runs when auth settles.
+  useEffect(() => {
+    if (authLoading) return
+    if (!DEMO_PICKER_ENABLED && !user) return  // pre-login: leave the draft for after sign-in
+    const draft = readAndClearPostDraft()
+    if (!draft) return
+    setTitle(draft.title)
+    setDescription(draft.description)
+    setPostingType(''); setConflicts([]); setExplainer(''); setPrefilled([]); setProfileUpdated(false)
+    const g: Groups = { ...EMPTY, ...(draft.groups || {}) }
+    const st: KV = draft.key_stages_or_info || {}
+    const dt: KV = draft.key_dates || {}
+    // The draft carries no relevant_sections — reveal any section with drafted data.
+    setRelevant(SECTIONS.map((s) => s.field).filter((f) => {
+      const v = g[f]
+      return Array.isArray(v) ? v.length > 0 : Boolean(v)
+    }) as string[])
+    void applyTagResult(g, st, dt)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading])
 
   async function preview() {
     if (!canPreview) return
@@ -112,35 +219,7 @@ export default function PostPage() {
       setRelevant(Array.isArray(data.relevant_sections) ? data.relevant_sections : [])
       setPostingType(data.posting_type || '')
       setConflicts([]); setExplainer(''); setPrefilled([]); setProfileUpdated(false)
-
-      // Reconcile against the saved profile (best-effort; only with an active user).
-      let applied = false
-      if (getActiveUser()) {
-        try {
-          const rr = await fetch('/api/reconcile', {
-            method: 'POST', headers: userHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ message: { ...g, key_stages_or_info: st, key_dates: dt } }),
-          })
-          if (rr.ok) {
-            const rd = await rr.json()
-            const m = rd.merged || {}
-            setGroups({
-              ...EMPTY,
-              current_visa_or_greencard_category: m.current_visa_or_greencard_category ?? g.current_visa_or_greencard_category,
-              visa_applying_for: m.visa_applying_for ?? g.visa_applying_for,
-              primary_consulate: m.primary_consulate ?? g.primary_consulate,
-              consulates: m.consulates ?? g.consulates,
-              tags: g.tags, concerns_or_questions_tags: g.concerns_or_questions_tags,
-            })
-            setStages(m.key_stages_or_info ?? st)
-            setDates(m.key_dates ?? dt)
-            setConflicts(rd.conflicts || []); setExplainer(rd.explainer || ''); setPrefilled(rd.prefilled || [])
-            applied = true
-          }
-        } catch { /* no active user / reconcile unavailable — post without it */ }
-      }
-      if (!applied) { setGroups(g); setStages(st); setDates(dt) }
-      setPreviewed(true)
+      await applyTagResult(g, st, dt)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not analyze the posting')
     } finally {
@@ -216,7 +295,11 @@ export default function PostPage() {
       const res = await fetch('/api/postings', {
         // Send the active user so the backend records the posting↔author link.
         method: 'POST', headers: userHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ title, description, tags: groups, key_stages_or_info: stages, key_dates: dates }),
+        body: JSON.stringify({
+          title, description, tags: { ...groups, tags: ensureKindTags(groups.tags) },
+          key_stages_or_info: stages, key_dates: dates,
+          client_platform: 'web',
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Could not publish posting')
@@ -253,9 +336,11 @@ export default function PostPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
-      <h1 className="text-headline-md text-on-surface mb-1">Post a new message</h1>
+      <h1 className="text-headline-md text-on-surface mb-1">{isDiscussion ? 'Start a discussion' : 'Post a new message'}</h1>
       <p className="text-body-md text-on-surface-variant mb-5">
-        Share your immigration experience or question. Preview to see auto-suggested tags, then submit.
+        {isDiscussion
+          ? 'Share a general immigration topic, article, or how-to guide — not tied to one person’s case. Preview to see auto-suggested tags, then submit.'
+          : 'Share your immigration experience or question. Preview to see auto-suggested tags, then submit.'}
       </p>
 
       {error && <div className="card text-error mb-4">{error}</div>}
@@ -263,6 +348,23 @@ export default function PostPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* LEFT — compose */}
         <div className="space-y-4">
+          {isDiscussion && (
+            <div>
+              <label className="text-label-md text-on-surface font-medium">Type</label>
+              <div className="flex gap-2 mt-1">
+                {DISCUSSION_KINDS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setKind(k)}
+                    className={kind === k ? 'pill-active' : 'pill'}
+                  >
+                    {KIND_LABEL[k]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <label className="text-label-md text-on-surface font-medium">Title</label>
             <input
@@ -433,12 +535,14 @@ export default function PostPage() {
               )}
 
               <div className="pt-2 border-t border-outline-variant">
-                {!hasVisa && (
+                {!isDiscussion && !hasVisa && (
                   <p className="text-caption text-error mb-2">
-                    Add at least one visa/status under “Visa/category applying for” or “Current status” to submit.
+                    {hasOnlyGenericVisa
+                      ? 'We could tell this is family/employment-based, but need the exact category — please add the specific one below (e.g. IR-1, EB-2) if you know it.'
+                      : 'Add at least one visa/status under "Visa/category applying for" or "Current status" to submit.'}
                   </p>
                 )}
-                <button onClick={submit} disabled={submitting || !hasVisa} className="btn-primary w-full disabled:opacity-40">
+                <button onClick={submit} disabled={submitting || (!isDiscussion && !hasVisa)} className="btn-primary w-full disabled:opacity-40">
                   {submitting ? 'Publishing…' : 'Submit posting'}
                 </button>
                 <p className="text-caption text-on-surface-variant mt-2 text-center">
@@ -450,5 +554,20 @@ export default function PostPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * This page reads the query string — PostPageInner (or a hook it calls, e.g.
+ * useRequireUser's ?next= round-trip) uses useSearchParams(). Next 14 refuses
+ * to prerender such a page unless it sits under a Suspense boundary, and
+ * fails the PRODUCTION build with "useSearchParams() should be wrapped in a
+ * suspense boundary" — an error `next dev`, tsc and vitest never surface.
+ */
+export default function PostPage() {
+  return (
+    <Suspense fallback={null}>
+      <PostPageInner />
+    </Suspense>
   )
 }

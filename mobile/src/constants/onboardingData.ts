@@ -67,14 +67,14 @@ export const TAGS = [
   'NIW',
   'premium-processing',
   'consular-processing',
-  'adjustment-of-status-AOS',
+  'AOS',
   'OPT',
   'EAD',
   'NVC',
   'PERM',
   'cap-gap',
   'cap-subject',
-  'port-of-entry',
+  'POE',
   'travel-ban',
 ];
 

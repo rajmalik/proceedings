@@ -139,6 +139,24 @@ def check_rate_limit(ip: str) -> bool:
     return True
 
 
+# AI-Assist anonymous cap (Q7/Q18): its own counter, keyed primarily on the
+# client session_id (IP is unreliable behind the Next.js BFF), then a sign-in
+# nudge. A soft cost/abuse guard, not a security control.
+_assist_anon_rate: dict[str, list[float]] = defaultdict(list)
+ASSIST_ANON_MAX = int(os.getenv("AI_ASSIST_ANON_LIMIT", "5"))
+ASSIST_ANON_WINDOW = int(os.getenv("AI_ASSIST_ANON_WINDOW_SECONDS", "3600"))
+
+
+def check_assist_anon_limit(key: str) -> bool:
+    now = time.time()
+    ts = _assist_anon_rate[key]
+    _assist_anon_rate[key] = [t for t in ts if now - t < ASSIST_ANON_WINDOW]
+    if len(_assist_anon_rate[key]) >= ASSIST_ANON_MAX:
+        return False
+    _assist_anon_rate[key].append(now)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Request / Response Models
 # ---------------------------------------------------------------------------
@@ -179,12 +197,33 @@ class TagSuggestResponse(BaseModel):
     key_dates: dict[str, str] = {}
 
 
+# --- Search query tag chips (features/ui-changes-1/changes-2-.md item 4) ---
+class QueryTagsRequest(BaseModel):
+    q: str = Field(..., min_length=1, max_length=300)
+
+
+class QueryTag(BaseModel):
+    field: str
+    code: str
+    label: str
+
+
+class QueryTagsResponse(BaseModel):
+    tags: list[QueryTag] = []
+
+
 class PostingCreateRequest(BaseModel):
     title: str = Field(..., min_length=3, max_length=300)
     description: str = Field(..., min_length=10, max_length=8000)
     tags: TagGroups = TagGroups()
     key_stages_or_info: dict[str, str] = {}
     key_dates: dict[str, str] = {}
+    # Soft analytics field the client reports about itself ("web"/"ios"/
+    # "android") — see docs/ingestion/PATH-B-PROVENANCE-PLAN.md. Unlike
+    # channel/posting_date, a client lying about its own platform has no
+    # content-integrity stakes, so this is safe to accept on the public
+    # route; invalid values are clamped to "" server-side, never rejected.
+    client_platform: str = ""
 
 
 class PostingCreateResponse(BaseModel):
@@ -252,6 +291,10 @@ class ProfilePayload(BaseModel):
     journey: list[JourneyEntry] = []
 
 
+class KeyDatesUpdate(BaseModel):
+    key_dates: dict[str, str] = {}
+
+
 class OnboardRequest(BaseModel):
     messages: list[dict] = []
     draft: ProfilePayload = ProfilePayload()
@@ -270,6 +313,7 @@ class SourceInfo(BaseModel):
     source: str
     labels: list[str]
     score: float
+    as_of: str = ""
 
 
 class AskResponse(BaseModel):
@@ -336,10 +380,15 @@ class PostingCard(BaseModel):
     url: str
     date: str
     timestamp: str = ""  # full ingestion timestamp (for relative "X ago" + recency sort)
+    event_timestamp: str = ""  # the ORIGINAL source event date — never ingestion time
     # Authoring app user's uid (first-party postings only), resolved from the
     # Firestore posting↔author link. Lets the client block an author from the
     # feed and hide their cards instantly (App Store Guideline 1.2).
     author_id: str = ""
+    # Source author identity — a synthetic per-item handle for app/Reddit
+    # postings, or a fixed per-source handle (e.g. "USCIS") for gov-news
+    # content. See docs/ingestion/GOV-NEWS-INGESTION-PLAN.md §3.6.
+    author_handle: str = ""
 
 
 class FacetValue(BaseModel):
@@ -415,6 +464,7 @@ class UserRepliesResponse(BaseModel):
 # --- Replies + voting (phase-L) ---
 class ReplyCreate(BaseModel):
     body: str = Field(..., min_length=1, max_length=5000)
+    parent_reply_id: str = ""  # empty = top-level reply; else the reply being answered
 
 
 class VoteTally(BaseModel):
@@ -427,6 +477,7 @@ class VoteTally(BaseModel):
 class ReplyCard(BaseModel):
     id: str
     parent_case_id: str
+    parent_reply_id: str = ""  # empty = top-level; else the reply this answers (for client-side threading)
     body: str
     author_handle: str
     author_id: str = ""  # author uid (blank on your own) — for block-user (Apple 1.2)
@@ -460,6 +511,7 @@ class Criteria(BaseModel):
     visa_applying_for: list[str] = []
     primary_consulate: str = ""
     consulates: list[str] = []
+    tags: list[str] = []
     key_stages_or_info: dict[str, str] = {}
     key_dates: dict[str, str] = {}
     background_text: str = ""
@@ -487,6 +539,7 @@ class MatchCard(BaseModel):
     shared: list[str] = []
     summary: str = ""
     background: str = ""
+    reason: str = ""  # one human sentence for WHY this candidate surfaced
 
 
 class MatchesResponse(BaseModel):
@@ -504,21 +557,125 @@ class GroupCreate(BaseModel):
     criteria_text: str = ""
     criteria: Criteria = Criteria()
     members: list[GroupMember] = []
+    group_type: str = ""  # "" = regular, "timeline" = Timeline Group
+    description: str = ""
+    validity: str = ""  # e.g. "1_month" | "1_year" | "5_years" — see matching.py _VALIDITY_DAYS
+    values: dict[str, str] = {}  # post-join attribute values, if this creates/joins a Timeline group needing them
+    notes: str = ""
+
+
+class InvitationCard(BaseModel):
+    """A pending (or resolved) group invitation. Declared BEFORE GroupCard so
+    GroupCard can reference it without a forward-reference rebuild; the
+    group↔invitation pairing lives on the PendingInvitation wrapper below
+    rather than nesting, which would make the two models mutually recursive."""
+    invitation_id: str
+    group_id: str
+    group_name: str = ""
+    user_id: str = ""
+    username: str = ""
+    invited_by: str = ""
+    invited_by_username: str = ""
+    status: str = "pending"  # pending | accepted | declined | cancelled
+    requires_attributes: bool = False  # accepting will demand the post-join form
+    created_at: str = ""
+    responded_at: str = ""
+
+
+class SkippedInvite(BaseModel):
+    user_id: str
+    reason: str = ""  # already_member | already_pending | self | unknown_user
 
 
 class GroupCard(BaseModel):
     group_id: str
     name: str = ""
+    description: str = ""
+    group_type: str = ""
     criteria_text: str = ""
+    criteria_tags: dict = {}
     members: list[GroupMember] = []
-    status: str = "formed"
+    created_by: str = ""
+    created_by_username: str = ""
+    is_admin: bool = False  # true for the viewer who created this group
+    status: str = "active"  # active | archived | deleted
+    expiration_date: str = ""
     created_at: str = ""
+    last_activity_at: str = ""
     is_member: bool = False
     joined: bool = False  # true when an existing group was joined (vs. created)
+    needs_attributes: bool = False  # viewer-scoped: true if a Timeline post-join attribute template applies and they haven't submitted yet
+    score: float = 0.0  # set only on /api/groups/search results (regular groups)
+    shared: list[str] = []  # set only on /api/groups/search results (regular groups)
+    is_invited: bool = False  # viewer-scoped: they have a PENDING invite (browse lists only)
+    invited: list[InvitationCard] = []  # set by POST /api/groups when peers were invited
 
 
 class GroupsResponse(BaseModel):
     groups: list[GroupCard]
+
+
+class PendingInvitation(BaseModel):
+    invitation: InvitationCard
+    group: GroupCard
+
+
+class PendingInvitationsResponse(BaseModel):
+    invitations: list[PendingInvitation] = []
+    total: int = 0
+
+
+class InvitationsResponse(BaseModel):
+    invitations: list[InvitationCard] = []
+    total: int = 0
+
+
+class InviteBatchResponse(BaseModel):
+    group: GroupCard
+    invited: list[InvitationCard] = []
+    skipped: list[SkippedInvite] = []
+
+
+class GroupSearchRequest(BaseModel):
+    criteria: Criteria = Criteria()
+    group_type: str = ""
+    precision: str = "balanced"  # broad | balanced | strict — regular groups only
+    max_age_days: int = 0  # 0 = all time
+
+
+class GroupPreview(BaseModel):
+    """What POST /api/groups/preview returns — the name and description these
+    criteria would produce, generated by the same code that names the group
+    on create."""
+    name: str = ""
+    description: str = ""
+
+
+class AddMembersRequest(BaseModel):
+    user_ids: list[str] = Field(default=[], max_length=50)
+
+
+class GroupUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+class GroupArchiveUpdate(BaseModel):
+    archived: bool = True
+
+
+class GroupInvite(BaseModel):
+    handle: str = Field(..., min_length=1, max_length=64)
+
+
+class JoinGroupBody(BaseModel):
+    values: dict[str, str] = {}  # post-join attribute values, required if the group needs them (see matching.join_group)
+    notes: str = ""
+
+
+class MemberAttributesUpdate(BaseModel):
+    values: dict[str, str] = {}
+    notes: str = ""
 
 
 # --- Group chat messages (phase-N) ---
@@ -592,6 +749,71 @@ class ChatResponse(BaseModel):
     id: str = ""
 
 
+# --- AI Assist (conversational router) ---
+class AssistTurn(BaseModel):
+    role: str = "user"          # "user" | "ai"
+    content: str = ""
+    intent: str = ""            # the intent that produced an "ai" turn (echoed back)
+
+
+class AssistRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    history: list[AssistTurn] = []
+    session_id: str = ""        # client-generated; anon rate-limit + analytics key only
+    force_intent: str = ""      # "" | "post" | "timeline-find" (the A5 override)
+
+
+class AssistCitation(BaseModel):
+    source: str = ""
+    title: str = ""
+    as_of: str = ""
+
+
+class AssistCommunityCard(BaseModel):
+    case_id: str = ""
+    title: str = ""
+    snippet: str = ""
+    url: str = ""               # external permalink, or /case/{case_id}
+    channel: str = ""
+
+
+class AssistPostDraft(BaseModel):
+    title: str = ""
+    description: str = ""
+    groups: dict = {}
+    key_stages_or_info: dict[str, str] = {}
+    key_dates: dict[str, str] = {}
+
+
+class AssistTimeline(BaseModel):
+    status: str = ""            # "found" | "not_found" | "unresolved"
+    group_id: str = ""
+    group_name: str = ""
+    criteria: dict = {}
+    find_url: str = ""          # /find Timeline-mode deep-link, prefilled from criteria
+
+
+class AssistResponse(BaseModel):
+    intent: str
+    confidence: float = 0.0
+    answer: str = ""
+    source_tier: str = ""       # "gov" | "community" | "ungrounded" | ""
+    citations: list[AssistCitation] = []
+    community_cards: list[AssistCommunityCard] = []
+    clarify_questions: list[str] = []
+    post_draft: AssistPostDraft | None = None
+    timeline: AssistTimeline | None = None
+    find_url: str = ""
+    search_suggestions_html: str = ""   # web tier: Google Search-Suggestion chips (UI must render)
+    disclaimer: str = ""
+    can_post: bool = True
+    can_find_timeline: bool = False
+    can_find_similar: bool = False
+    rationale: str = ""
+    id: str = ""
+    turns_used: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -617,6 +839,24 @@ def _save(question: str, result: dict) -> str:
         return save_qa_pair(question, result, _db)
     except Exception as e:
         print(f"Warning: Could not save to Firestore: {e}")
+        return ""
+
+
+def _save_assist(question: str, result: dict) -> str:
+    """Log an AI-Assist turn to qa_pairs with the routing decision + grounding
+    tier (Q15). Sources come from the citations and community-card links."""
+    if not _db:
+        return ""
+    try:
+        chunks = [{"source": c.get("source", "")} for c in result.get("citations", [])]
+        chunks += [{"source": c.get("url", "")} for c in result.get("community_cards", [])]
+        payload = {"answer": result.get("answer", ""), "chunks": chunks,
+                   "is_fallback": result.get("is_fallback", False)}
+        return save_qa_pair(question, payload, _db,
+                            route=result.get("intent", ""),
+                            source_tier=result.get("source_tier", ""))
+    except Exception as e:
+        print(f"Warning: could not save assist qa: {e}")
         return ""
 
 
@@ -826,13 +1066,66 @@ def tag_suggest(body: TagSuggestRequest, request: Request):
     )
 
 
+@app.post("/api/search/query-tags", response_model=QueryTagsResponse)
+def search_query_tags(body: QueryTagsRequest, request: Request):
+    """Auto-derive controlled-vocabulary tags from a search query string, using
+    the same Gemini-based tagging principles as posting composition (see
+    posting.suggest_query_tags). Meant to be called once per search submit
+    (not per keystroke) in parallel with /api/search — a slow/failed call here
+    must never block or delay showing search results."""
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
+
+    import posting
+
+    out = _guard(lambda: posting.suggest_query_tags(body.q))
+    return QueryTagsResponse(tags=[QueryTag(**t) for t in out])
+
+
 @app.get("/api/tag-vocab")
 def tag_vocab():
     """Controlled vocabularies (visa / consulate / tag) for the composer's
-    add-tag autocomplete. Static; safe to cache on the client."""
+    add-tag autocomplete, plus the Timeline attribute templates.
+
+    The vocabulary half is static. The attribute half is externalised config
+    (attribute_config) and changes without a deploy, so clients should cache
+    this on the order of the config TTL, not indefinitely."""
     import posting
 
     return posting.vocab_lists()
+
+
+@app.get("/api/config/attributes")
+def get_attribute_config():
+    """The Timeline attribute spec currently in force, plus where it came
+    from. `source` is the operational answer to "is prod running my edit?":
+
+      firestore  — serving the published document
+      last-good  — the document is unreadable or failed validation; still
+                   serving the previous good one (see last_error)
+      default    — nothing published, or nothing has ever validated; serving
+                   the spec baked into the image
+
+    Read-only by design: the API never writes config, so a bad spec cannot
+    arrive over HTTP. Publishing goes through
+    scripts/publish_attribute_config.py, which validates first."""
+    import attribute_config
+
+    return {"meta": attribute_config.meta(), "spec": attribute_config.get()}
+
+
+@app.post("/api/config/attributes/refresh")
+def refresh_attribute_config(request: Request):
+    """Force an immediate re-read instead of waiting out the TTL — for the
+    moment after publishing when you want to confirm the rollout rather than
+    watch a clock. Admin-token gated: it is cheap, but it is an unauthenticated
+    Firestore read amplifier otherwise."""
+    _require_admin(request)
+    import attribute_config
+
+    attribute_config.refresh(force=True)
+    return {"ok": True, "meta": attribute_config.meta()}
 
 
 @app.post("/api/postings", response_model=PostingCreateResponse)
@@ -844,15 +1137,26 @@ def create_posting(body: PostingCreateRequest, request: Request):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
 
     import posting
+    import profile
 
-    # Author (the publishing app user). Kept OUT of the posting itself / search
-    # datastore — only recorded in the Firestore posting↔author link below.
-    author_uid = _optional_user(request)
+    # Posting requires a signed-in user. A personal-case message additionally
+    # requires a set-up profile (a visa/status), but a general discussion/blog
+    # (tagged `discussion`/`blog`) is NOT tied to the author's own case, so it is
+    # exempt from that profile requirement. Author is kept OUT of the posting
+    # itself / search datastore — only recorded in the Firestore link below.
+    author_uid = _active_user(request)
+    is_discussion = bool({"discussion", "blog"} & set(body.tags.tags or []))
+    if not is_discussion:
+        _prof = _guard(lambda: profile.get_profile(_db, author_uid))
+        if not (_prof.get("current_visa_or_greencard_category") or _prof.get("visa_applying_for")):
+            raise HTTPException(status_code=422,
+                                detail="Set up your profile (add your visa/status) before posting a message.")
 
     try:
         result = _guard(lambda: posting.publish_posting(
             body.title, body.description, body.tags.model_dump(),
             body.key_stages_or_info, body.key_dates,
+            client_platform=body.client_platform,
         ))
     except ValueError as e:
         # vocabulary / schema validation failure → 422
@@ -948,6 +1252,23 @@ def put_profile(body: ProfilePayload, request: Request):
     return _guard(lambda: profile.save_profile(_db, uid, body.model_dump()))
 
 
+@app.post("/api/profile/key-dates")
+def update_key_dates(body: KeyDatesUpdate, request: Request):
+    """Partial key_dates update — merges the given dates into the active
+    user's existing profile (new keys added, matching keys overwritten,
+    every other profile field round-trips unchanged). Used by the post-join
+    Timeline attribute form (POST_JOIN_ATTRIBUTE_TEMPLATES); a plain PUT
+    /api/profile would require resubmitting the whole profile, which the
+    caller doesn't have on hand there."""
+    import profile
+    uid = _active_user(request)
+    def _do():
+        current = profile.get_profile(_db, uid)
+        merged = profile.merge_profile(current, {**current, "key_dates": body.key_dates})
+        return profile.save_profile(_db, uid, merged)
+    return _guard(_do)
+
+
 @app.delete("/api/users/me")
 def delete_account(request: Request):
     """Delete the authenticated user's account and all associated data.
@@ -1022,6 +1343,15 @@ def delete_account(request: Request):
             doc.reference.delete()
     except Exception:
         pass  # votes collection might not exist or have different schema
+
+    # 5b. Delete group invitations ADDRESSED to the user. Invitations they
+    # sent are left alone (they carry a now-dead invited_by uid, consistent
+    # with how groups.created_by already retains a deleted user's uid).
+    try:
+        for doc in _db.collection("group_invitations").where("user_id", "==", uid).stream():
+            doc.reference.delete()
+    except Exception:
+        pass  # collection may not exist yet
 
     # 6. Delete Firebase Auth account
     if _firebase_ready() and _fb_auth is not None:
@@ -1337,6 +1667,41 @@ def chat(body: ChatRequest, request: Request):
     )
 
 
+@app.post("/api/assist", response_model=AssistResponse)
+def assist_turn(body: AssistRequest, request: Request):
+    """AI-Assist conversational turn: the router (backend/assist.py) classifies the
+    turn and returns a grounded answer (gov->community->ungrounded), a /post draft,
+    an EAD/H-1B timeline group handoff, or clarifying questions. Anonymous users
+    may ask (F3); posting/finding a group still requires login on those pages."""
+    import assist as assist_mod
+
+    client_ip = request.client.host if request.client else "unknown"
+    uid = _optional_user(request)
+
+    # Anonymous -> session-keyed soft cap + sign-in nudge (Q7/Q18); authenticated
+    # -> the standard per-IP limiter.
+    turns_used = 0
+    if uid:
+        if not check_rate_limit(client_ip):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
+    else:
+        key = body.session_id or client_ip
+        if not check_assist_anon_limit(key):
+            raise HTTPException(status_code=429,
+                                detail="You've reached the guest limit — sign in to keep asking.")
+        turns_used = len(_assist_anon_rate[key])
+
+    history = [t.model_dump() for t in body.history][-8:]
+    result = _guard(lambda: assist_mod.handle_turn(
+        body.message, history,
+        force_intent=body.force_intent,
+        project_id=_project_id, location=_ds_location, engine_id=_engine_id, db=_db,
+    ))
+    result["id"] = _save_assist(body.message, result)
+    result["turns_used"] = turns_used
+    return AssistResponse(**result)
+
+
 @app.get("/api/qa", response_model=QAListResponse)
 def list_qa(limit: int = 20, offset: int = 0, category: str = ""):
     """List recent Q&A pairs, optionally filtered by category label."""
@@ -1455,15 +1820,39 @@ def _facets_filter(facets: list[str]) -> str:
             continue
         field, value = item.split(":", 1)
         field, value = field.strip(), value.strip()
-        # allow only known facet fields (avoid arbitrary filter injection)
+        # allow only known facet fields (avoid arbitrary filter injection).
+        # doc_kind added for the News tab (gov-news content) — see
+        # docs/ingestion/GOV-NEWS-INGESTION-PLAN.md §7. NOT `channel`: live-
+        # checked the Discovery Engine schema and `channel` is registered as
+        # a bare {"type": "string"} only — not indexable/searchable/
+        # dynamicFacetable — so `channel: ANY(...)` filter expressions 400.
+        # `doc_kind` is fully indexed (same as "post"/"experience"/
+        # "connect_card" already rely on), so that's the real filter field.
         if field in {"consulates", "visa_applying_for", "current_visa_or_greencard_category",
                      "key_stages_or_info.outcome_status", "tags", "concerns_or_questions_tags",
-                     "derived_topic_cluster"} and value:
+                     "derived_topic_cluster", "doc_kind"} and value:
             by_field.setdefault(field, []).append(value)
     clauses = []
     for field, values in by_field.items():
         ors = " OR ".join(f'{field}: ANY("{v}")' for v in values)
         clauses.append(f"({ors})")
+    return " AND ".join(clauses)
+
+
+def _recency_news_clause(include_news: bool | None, max_age_days: int) -> str:
+    """Optional extra filter clause from Advanced Search's "Include news" /
+    "Cutoff period" controls. `None`/0 (the defaults) mean the caller hasn't
+    specified either — each /api/search branch keeps its own pre-existing
+    default behavior in that case (see call sites); this only returns a
+    clause once a caller has explicitly opted into one of these controls.
+    `max_age_days` restricts every doc_kind, not just news — a general
+    recency window, not a news-only one."""
+    clauses = []
+    if include_news is False:
+        clauses.append('(NOT doc_kind: ANY("gov_news"))')
+    if max_age_days > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
+        clauses.append(f'posting_date > "{cutoff}"')
     return " AND ".join(clauses)
 
 
@@ -1478,12 +1867,23 @@ def search(
     facet: list[str] = Query(default=[]),
     page_size: int = 10,
     page_token: str = "",
+    sort: str = "event",
+    include_news: bool | None = None,
+    max_age_days: int = 0,
 ):
     """Ranked posting search (result cards). Browse/search mode, not Q&A.
 
     Explicit `visa`/`consulate`/`outcome` params and selected `facet` chips
     ('field:value') apply exact filters. `strictness` (broad|balanced|strict)
-    controls how the NL query's extracted facets are applied."""
+    controls how the NL query's extracted facets are applied. `sort`
+    ("recent" | "event" — see search_client.py's _SORT_FIELDS): "event"
+    (default) orders by the source's own original publish date — ingestion
+    can lag days behind the source, so this is what "most recent" means
+    everywhere now, not just for the News tab that introduced it; "recent"
+    orders by ingestion time instead, for any caller that wants that.
+    `include_news`/`max_age_days` are Advanced Search's explicit News/Cutoff
+    controls (see _recency_news_clause) — omitted entirely by every other
+    caller, which keeps each branch's own legacy default unchanged."""
     client_ip = request.client.host if request.client else "unknown"
     if not check_rate_limit(client_ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
@@ -1491,14 +1891,25 @@ def search(
         return SearchResponse(results=[], next_page_token="", total=0)
 
     page_size = max(1, min(page_size, 50))
-    query = q or "immigration experience"
     selected = _facets_filter(facet)
 
     explicit = _build_filter(visa, consulate, outcome)
-    hard = " AND ".join(e for e in (explicit, selected) if e)
+    recency_news = _recency_news_clause(include_news, max_age_days)
+    hard = " AND ".join(e for e in (explicit, selected, recency_news) if e)
     if hard:
-        data = search_postings(query, _project_id, _ds_location, _engine_id,
-                               page_size=page_size, page_token=page_token, filter_expr=hard)
+        # A hard filter (facet chips / visa / consulate / outcome) already
+        # scopes results correctly on its own — don't ALSO force a fallback
+        # query string here. Confirmed live: with no filter this fallback
+        # ("immigration experience") is harmless, but combined with a facet
+        # filter it does real damage — e.g. `doc_kind: ANY("gov_news")`
+        # alone correctly matches all 250 USCIS articles, but adding that
+        # fallback text drops it to 6, because Discovery Engine's relevance
+        # matching excludes non-matching documents entirely regardless of
+        # order_by. This is exactly what silently starved the News tab
+        # (facet-only, no typed query) down to a handful of items. An empty
+        # `query` here still returns the full, correctly-filtered set.
+        data = search_postings(q, _project_id, _ds_location, _engine_id,
+                               page_size=page_size, page_token=page_token, filter_expr=hard, sort=sort)
         explicit_filters = {k: v for k, v in {
             "consulate": [consulate] if consulate else [],
             "visa": [visa] if visa else [],
@@ -1507,9 +1918,61 @@ def search(
         data.setdefault("applied_filters", explicit_filters)
         data.setdefault("effective_strictness", "strict")
         data.setdefault("relaxed", False)
+    elif not q.strip():
+        # Empty query, no hard filter = BROWSE the feed most-recent-first. Use
+        # the News tab's proven empty-query + doc_kind filter + order_by recipe:
+        # a relevance fallback here (below) would re-rank by relevance and drop
+        # the recency order entirely. The doc_kind filter scopes the feed to
+        # user postings/experiences (gov_news has its own surface) AND keeps us
+        # on the hard-filter path where `order_by ... desc` actually governs.
+        # (Only reachable with include_news is not False and max_age_days==0
+        # — anything else already routed through the hard-filter branch above
+        # via _recency_news_clause — so include_news here can only be
+        # None/True; True means Advanced Search explicitly asked for gov-news
+        # in an otherwise-empty search.)
+        browse_kinds = ["post", "experience"] + (["gov_news"] if include_news else [])
+        browse_filter = "doc_kind: ANY(" + ", ".join(f'"{k}"' for k in browse_kinds) + ")"
+        data = search_postings("", _project_id, _ds_location, _engine_id,
+                               page_size=page_size, page_token=page_token,
+                               filter_expr=browse_filter, sort=sort or "event")
+        data.setdefault("applied_filters", {})
+        data.setdefault("effective_strictness", "recent")
+        data.setdefault("relaxed", False)
     else:
-        data = search_with_strictness(query, _project_id, _ds_location, _engine_id,
-                                      page_size=page_size, page_token=page_token, strictness=strictness)
+        # Free-text/relevance search, where Discovery Engine genuinely needs
+        # some query text to rank against. Default to relevance ordering
+        # (search_client._SORT_FIELDS comment) rather than forcing
+        # posting_date-desc — a strongly-matching-but-older posting used to
+        # get buried under unrelated recent ones within the same
+        # facet-filtered set (features/ui-changes-1/changes-2-.md item 3).
+        # A caller that explicitly wants ingestion-recency (sort="recent")
+        # is still honored; "event" (the general default elsewhere) and any
+        # other value both mean "let relevance govern" here.
+        effective_sort = "recent" if sort == "recent" else "relevance"
+        if include_news is not None or max_age_days > 0:
+            # Advanced Search explicitly set News/Cutoff — that replaces the
+            # legacy 7-day carve-out below entirely, including "no
+            # restriction at all" when include_news=True and no cutoff is
+            # set (an explicit ask to see everything, unfiltered).
+            news_recency_filter = _recency_news_clause(include_news, max_age_days)
+        else:
+            # gov-news items shouldn't pollute ordinary keyword search — the
+            # empty-query browse path already excludes them (browse_filter
+            # above) and the News tab reaches them via its own explicit
+            # doc_kind:gov_news facet chip (the hard-filter branch above, left
+            # untouched). This is the one remaining path with no doc_kind
+            # handling at all. Carve out anything still within the last 7 days
+            # (by source event date, not ingestion) so breaking news can still
+            # surface in a relevant keyword search while it's still news.
+            # Only applies when the caller hasn't opted into the explicit
+            # News/Cutoff controls above (i.e. every caller but Advanced
+            # Search) — see _recency_news_clause.
+            news_cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+            news_recency_filter = f'((NOT doc_kind: ANY("gov_news")) OR posting_date > "{news_cutoff}")'
+        data = search_with_strictness(q, _project_id, _ds_location, _engine_id,
+                                      page_size=page_size, page_token=page_token,
+                                      strictness=strictness, sort=effective_sort,
+                                      extra_filter=news_recency_filter)
 
     # Hide moderation-taken-down postings and any authored by users the viewer
     # has blocked; also stamps each card's author_id for client-side blocking.
@@ -1522,7 +1985,7 @@ def search(
         applied_filters=data.get("applied_filters", {}),
         relaxed=data.get("relaxed", False),
         effective_strictness=data.get("effective_strictness", ""),
-        suggested_filters=[SuggestedFilter(**g) for g in _suggest(query)],
+        suggested_filters=[SuggestedFilter(**g) for g in _suggest(q)],
     )
 
 
@@ -1701,7 +2164,8 @@ def create_reply_route(case_id: str, body: ReplyCreate, request: Request):
     uid = _active_user(request)
     handle = profile.username_for(uid)
     try:
-        reply = _guard(lambda: interactions.add_reply(_db, case_id, body.body, uid, handle))
+        reply = _guard(lambda: interactions.add_reply(
+            _db, case_id, body.body, uid, handle, body.parent_reply_id))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return ReplyCard(**reply)
@@ -1821,6 +2285,44 @@ def admin_takedown_route(body: AdminTakedownRequest, request: Request):
     return {"ok": True, "content_id": body.content_id, "ejected": ejected}
 
 
+def _require_internal(request: Request) -> None:
+    """Gate internal/system-triggered routes (not for any user client) on a
+    shared secret header — same pattern as _require_admin(), separate env
+    var/header so this route's secret can rotate independently of the
+    moderation admin token. 403 unless `X-Internal-Poll-Secret` matches
+    GOV_NEWS_POLL_SECRET (unset ⇒ always 403)."""
+    import secrets as _secrets
+    token = os.getenv("GOV_NEWS_POLL_SECRET", "")
+    supplied = request.headers.get("x-internal-poll-secret", "")
+    if not token or not _secrets.compare_digest(supplied, token):
+        raise HTTPException(status_code=403, detail="Internal access required.")
+
+
+@app.post("/internal/gov-news/poll")
+def gov_news_poll_route(request: Request, source: str = "", dry_run: bool = False):
+    """Cloud Scheduler's target (GOV-NEWS-INGESTION-PLAN.md §5) — polls
+    registered gov-news sources (backend/news_sources.py) and publishes any
+    new/edited items. NOT a public route: gated by _require_internal(), and
+    deliberately not something any user client calls. `source` limits the run
+    to one registered slug; `dry_run=true` classifies without publishing."""
+    _require_internal(request)
+    from gov_news_poll import poll_all
+    return {"results": poll_all(source_slug=source, dry_run=dry_run)}
+
+
+@app.post("/internal/official-reference/poll")
+def official_reference_poll_route(request: Request, dry_run: bool = False):
+    """Cloud Scheduler target — fetch the registered authoritative reference
+    pages (backend/official_reference_poll.py SOURCES) and upsert each into DS-1
+    (one stable doc per URL; unchanged pages are skipped via the content_hash
+    guardrail). NOT public: gated by _require_internal() on the same
+    X-Internal-Poll-Secret as the gov-news poll. `dry_run=true` fetches +
+    classifies without writing."""
+    _require_internal(request)
+    from official_reference_poll import poll_all
+    return {"results": poll_all(dry_run=dry_run)}
+
+
 # ---------------------------------------------------------------------------
 # Find users in same boat + groups (phase-M). The expert chat builds match
 # criteria; criteria are validated against the profile via the existing
@@ -1849,19 +2351,99 @@ def find_matches_route(body: MatchesRequest, request: Request):
     return MatchesResponse(matches=[MatchCard(**m) for m in matches], total=len(matches))
 
 
+@app.post("/api/groups/{group_id}/find-candidates", response_model=MatchesResponse)
+def find_candidates_route(group_id: str, request: Request):
+    """Rank candidate users against an EXISTING group's own criteria — the
+    relocated counterpart of the old top-level chat-based matching flow,
+    now scoped to a specific group and reachable only by its members."""
+    import matching
+    uid = _active_user(request)
+    try:
+        group = _guard(lambda: matching.get_group(_db, group_id))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    member_ids = {m.get("user_id") for m in (group.get("members") or [])}
+    if uid not in member_ids:
+        raise HTTPException(status_code=403, detail="Only group members can find candidates.")
+    # Exclusions are passed INTO find_matches so its top_n caps the eligible
+    # pool. Filtering after the fact (as this route used to) meant a group
+    # with more members than top_n could return almost nothing. Pending
+    # invitees are excluded too, so we stop re-offering someone who already
+    # has an outstanding invitation.
+    exclude = member_ids | _guard(lambda: matching.pending_invitee_ids(_db, group_id))
+    matches = _guard(lambda: matching.find_matches(
+        _db, uid, group.get("criteria_tags") or {}, exclude_ids=exclude))
+    return MatchesResponse(matches=[MatchCard(**m) for m in matches], total=len(matches))
+
+
+@app.post("/api/groups/{group_id}/add-members", response_model=InviteBatchResponse)
+def add_members_route(group_id: str, body: AddMembersRequest, request: Request):
+    """A current member INVITES one or more found candidates — the "Find
+    candidates" counterpart to /invite (which invites by typed handle). They
+    become members only once they accept, so `group.members` is unchanged
+    here. Per-candidate problems come back in `skipped` rather than failing
+    the batch."""
+    import matching
+    uid = _active_user(request)
+    try:
+        r = _guard(lambda: matching.add_members(_db, group_id, uid, body.user_ids))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return InviteBatchResponse(
+        group=GroupCard(**r["group"]),
+        invited=[InvitationCard(**i) for i in r["invited"]],
+        skipped=[SkippedInvite(**s) for s in r["skipped"]],
+    )
+
+
 @app.post("/api/groups", response_model=GroupCard)
 def create_group_route(body: GroupCreate, request: Request):
-    """Join the existing group for this criteria signature, or create it. The
-    acting user (+ any selected peers) become members. `joined`=true on join."""
+    """Join the existing group for this criteria signature, or create it. Only
+    the acting user becomes a member — any selected peers are INVITED and
+    appear in `invited`. `joined`=true on join."""
     import matching
     uid = _active_user(request)
     try:
         g = _guard(lambda: matching.find_or_create_group(
             _db, uid, body.criteria_text, body.criteria.model_dump(),
-            [m.model_dump() for m in body.members]))
+            [m.model_dump() for m in body.members], body.group_type, body.description, body.validity,
+            body.values, body.notes))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    g["needs_attributes"] = matching.compute_needs_attributes(_db, g["group_id"], g, uid)
     return GroupCard(**g)
+
+
+@app.post("/api/groups/search", response_model=GroupsResponse)
+def search_groups_route(body: GroupSearchRequest):
+    """Search existing groups by criteria — the group-search counterpart to
+    Advanced Search's posting search. Public, like Advanced Search itself;
+    joining/creating still requires auth."""
+    import matching
+    groups = _guard(lambda: matching.search_groups(
+        _db, body.criteria.model_dump(), body.group_type, body.precision, body.max_age_days))
+    return GroupsResponse(groups=[GroupCard(**g) for g in groups])
+
+
+# Must stay ABOVE GET /api/groups/{group_id} — same reason /all and /search
+# do: a literal segment declared after the dynamic one is swallowed as an id.
+@app.post("/api/groups/preview", response_model=GroupPreview)
+def preview_group_route(body: GroupSearchRequest):
+    """The name and description a group WOULD get for these criteria, without
+    creating anything. Public, like /search.
+
+    Exists so the create screen can show the generated name before you commit
+    to it. The name has to come from the server: Timeline dedup is name-based,
+    so a client that computed its own would eventually disagree with the one
+    that decides whether you get a new group or join an existing one."""
+    import matching
+    preview = _guard(lambda: matching.preview_timeline_group(
+        body.criteria.model_dump(), body.group_type))
+    return GroupPreview(**preview)
 
 
 @app.get("/api/groups", response_model=GroupsResponse)
@@ -1875,23 +2457,176 @@ def list_groups_route(request: Request):
 
 @app.get("/api/groups/all", response_model=GroupsResponse)
 def list_all_groups_route(request: Request):
-    """All groups (browse), flagged with the viewer's membership."""
+    """All groups (browse), flagged with the viewer's membership and with
+    `is_invited` for groups they have a pending invitation to."""
     import matching
     uid = _active_user(request)
     groups = _guard(lambda: matching.list_all_groups(_db, uid))
     return GroupsResponse(groups=[GroupCard(**g) for g in groups])
 
 
+@app.get("/api/groups/invitations", response_model=PendingInvitationsResponse)
+def my_invitations_route(request: Request):
+    """Every pending invitation addressed to the active user, across all
+    groups — the "Pending invitations" section on the Groups tab. Each entry
+    carries the live group card alongside the invitation.
+
+    MUST stay declared above GET /api/groups/{group_id} (further down this
+    file) or "invitations" is captured as a group_id and this 404s."""
+    import matching
+    uid = _active_user(request)
+    rows = _guard(lambda: matching.list_pending_invitations_for_user(_db, uid))
+    return PendingInvitationsResponse(
+        invitations=[PendingInvitation(invitation=InvitationCard(**r["invitation"]),
+                                       group=GroupCard(**r["group"])) for r in rows],
+        total=len(rows),
+    )
+
+
 @app.post("/api/groups/{group_id}/join", response_model=GroupCard)
-def join_group_route(group_id: str, request: Request):
-    """Join an existing group directly (browse → join)."""
+def join_group_route(group_id: str, request: Request, body: JoinGroupBody = JoinGroupBody()):
+    """Join an existing group directly (browse → join). `values`/`notes` are
+    required if the group is a Timeline group with a registered post-join
+    attribute template and the user hasn't already submitted them (422 if
+    the required field is missing — see matching.join_group)."""
     import matching
     uid = _active_user(request)
     try:
-        g = _guard(lambda: matching.join_group(_db, group_id, uid))
+        g = _guard(lambda: matching.join_group(_db, group_id, uid, body.values, body.notes))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    g["needs_attributes"] = matching.compute_needs_attributes(_db, group_id, g, uid)
+    return GroupCard(**g)
+
+
+@app.post("/api/groups/{group_id}/archive", response_model=GroupCard)
+def archive_group_route(group_id: str, body: GroupArchiveUpdate, request: Request):
+    """Admin-only archive/unarchive toggle."""
+    import matching
+    uid = _active_user(request)
+    try:
+        g = _guard(lambda: matching.archive_group(_db, group_id, uid, body.archived))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return GroupCard(**g)
+
+
+@app.post("/api/groups/{group_id}/leave", response_model=GroupCard)
+def leave_group_route(group_id: str, request: Request):
+    """Leave a group. Reassigns admin to the next member if the creator leaves."""
+    import matching
+    uid = _active_user(request)
+    try:
+        g = _guard(lambda: matching.leave_group(_db, group_id, uid))
     except KeyError:
         raise HTTPException(status_code=404, detail="Group not found")
     return GroupCard(**g)
+
+
+@app.put("/api/groups/{group_id}", response_model=GroupCard)
+def rename_group_route(group_id: str, body: GroupUpdate, request: Request):
+    """Rename and/or re-describe a group. Creator-only."""
+    import matching
+    uid = _active_user(request)
+    try:
+        g = _guard(lambda: matching.rename_group(_db, group_id, uid, body.name, body.description))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return GroupCard(**g)
+
+
+@app.post("/api/groups/{group_id}/invite", response_model=InvitationCard)
+def invite_member_route(group_id: str, body: GroupInvite, request: Request):
+    """A current member INVITES someone they know by handle. Returns the
+    invitation, not a group card — the group is unchanged until the invitee
+    accepts, and returning a group card here would render a member who isn't
+    one yet."""
+    import matching
+    uid = _active_user(request)
+    try:
+        inv = _guard(lambda: matching.invite_member(_db, group_id, uid, body.handle))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return InvitationCard(**inv)
+
+
+@app.get("/api/groups/{group_id}/invitations", response_model=InvitationsResponse)
+def group_invitations_route(group_id: str, request: Request):
+    """Pending invitations for one group. Members-only — any member can see
+    them because any member can invite."""
+    import matching
+    uid = _active_user(request)
+    try:
+        rows = _guard(lambda: matching.list_pending_invitations_for_group(_db, group_id, uid))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return InvitationsResponse(invitations=[InvitationCard(**i) for i in rows], total=len(rows))
+
+
+@app.post("/api/groups/{group_id}/invitations/accept", response_model=GroupCard)
+def accept_invitation_route(group_id: str, request: Request, body: JoinGroupBody = JoinGroupBody()):
+    """Accept a pending invitation and become a member. Runs the same
+    post-join attribute gate as /join — if this is a Timeline group with a
+    registered template, the required field must be in `values` (422
+    otherwise, and the invitation stays pending so it can be retried)."""
+    import matching
+    uid = _active_user(request)
+    try:
+        g = _guard(lambda: matching.accept_invitation(_db, group_id, uid, body.values, body.notes))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    g["needs_attributes"] = matching.compute_needs_attributes(_db, group_id, g, uid)
+    return GroupCard(**g)
+
+
+@app.post("/api/groups/{group_id}/invitations/decline", response_model=InvitationCard)
+def decline_invitation_route(group_id: str, request: Request):
+    """Decline a pending invitation. Never touches the group's members — the
+    invitee was never one."""
+    import matching
+    uid = _active_user(request)
+    try:
+        inv = _guard(lambda: matching.decline_invitation(_db, group_id, uid))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return InvitationCard(**inv)
+
+
+@app.delete("/api/groups/{group_id}")
+def delete_group_route(group_id: str, request: Request):
+    """Soft-delete a group (status="deleted", hidden from every list/lookup
+    from then on; data retained). Creator-only."""
+    import matching
+    uid = _active_user(request)
+    try:
+        _guard(lambda: matching.delete_group(_db, group_id, uid))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -1909,7 +2644,42 @@ def get_group_route(group_id: str, request: Request):
               if x["group_id"] == group_id), None)
     if g is None:
         raise HTTPException(status_code=404, detail="Group not found")
+    g["needs_attributes"] = matching.compute_needs_attributes(_db, group_id, g, uid)
     return GroupCard(**g)
+
+
+@app.post("/api/groups/{group_id}/attributes", response_model=GroupCard)
+def save_member_attributes_route(group_id: str, body: MemberAttributesUpdate, request: Request):
+    """A current member submits (or updates) their post-join attributes —
+    the mandatory-gate fill-in path for a member added via invite (who
+    never went through /join), or anyone revisiting to complete it."""
+    import matching
+    uid = _active_user(request)
+    try:
+        g = _guard(lambda: matching.save_member_attributes(_db, group_id, uid, body.values, body.notes))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    g["needs_attributes"] = matching.compute_needs_attributes(_db, group_id, g, uid)
+    return GroupCard(**g)
+
+
+@app.get("/api/groups/{group_id}/attributes")
+def list_member_attributes_route(group_id: str, request: Request):
+    """Members-only — every member's submitted post-join attributes, shared
+    with the whole group (not just the submitter)."""
+    import matching
+    uid = _active_user(request)
+    try:
+        attrs = _guard(lambda: matching.list_member_attributes(_db, group_id, uid))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Group not found")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return {"attributes": attrs}
 
 
 @app.get("/api/groups/{group_id}/messages", response_model=MessagesResponse)

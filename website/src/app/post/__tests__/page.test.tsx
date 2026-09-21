@@ -3,7 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import PostPage from '../page'
 
 // Active user = demo-arjun; userHeaders forwards it as X-User-Id (as the real lib does).
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }))
+// searchParams is mutable so discussion-mode tests can set ?type=discussion.
+const { sp } = vi.hoisted(() => ({ sp: { value: new URLSearchParams() } }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+  useSearchParams: () => sp.value, useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }))
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: null, loading: false, signOut: vi.fn() }) }))
 vi.mock('@/lib/activeUser', () => ({
   getActiveUser: vi.fn(() => 'demo-arjun'),
@@ -68,7 +72,7 @@ function mockApi() {
   }) as unknown as typeof fetch
 }
 
-beforeEach(() => mockApi())
+beforeEach(() => { sp.value = new URLSearchParams(); mockApi() })
 
 async function previewWithConflict() {
   render(<PostPage />)
@@ -109,5 +113,166 @@ describe('PostPage — reconcile + update-profile-to-match (profile ↔ message)
     // username/consulates from the existing profile are preserved in the PUT.
     expect(putBody?.username).toBe('arjun-h1b')
     expect(putBody?.consulates).toEqual(['BOM'])
+  })
+})
+
+// A generic family-immigration/employment-immigration (backend:
+// posting.py's _apply_visa_backfill(), a last-resort fallback meant for
+// manual curation with no original poster to ask) must never be enough to
+// enable Submit for a LIVE app user, who's right here and can always be
+// asked directly for the specific category instead.
+describe('PostPage — generic visa-fallback gating (family-immigration / employment-immigration)', () => {
+  function mockTagSuggest(groups: Partial<typeof EMPTY_GROUPS>) {
+    global.fetch = vi.fn(async (url: string) => {
+      const u = String(url)
+      if (u.includes('/api/tag-vocab')) return json(VOCAB)
+      if (u.includes('/api/tag-suggest')) {
+        return json({
+          groups: { ...EMPTY_GROUPS, ...groups },
+          relevant_sections: ['current_visa_or_greencard_category'], posting_type: 'general_question',
+          key_stages_or_info: {}, key_dates: {},
+        })
+      }
+      if (u.includes('/api/reconcile')) return json({}, false, 404) // no active user path exercised here
+      return json({})
+    }) as unknown as typeof fetch
+  }
+
+  async function previewWith(groups: Partial<typeof EMPTY_GROUPS>) {
+    mockTagSuggest(groups)
+    render(<PostPage />)
+    fireEvent.change(screen.getByPlaceholderText(/H-1B extension with an RFE/), { target: { value: 'General I-130/I-485 question' } })
+    fireEvent.change(screen.getByPlaceholderText(/Describe your situation/), {
+      target: { value: 'For those who filed I-130 and I-485 at the same time, how long until approval?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    await screen.findByText('Review tags')
+  }
+
+  it('a generic-only category does NOT enable Submit, and shows the "need the exact category" message', async () => {
+    await previewWith({ current_visa_or_greencard_category: ['family-immigration'] })
+    expect(screen.getByRole('button', { name: /Submit posting/ })).toBeDisabled()
+    expect(screen.getByText(/need the exact category/i)).toBeInTheDocument()
+    // The generic value is still shown as a removable chip, not hidden.
+    expect(screen.getByText('family-immigration')).toBeInTheDocument()
+  })
+
+  it('employment-immigration alone also does NOT enable Submit', async () => {
+    await previewWith({ current_visa_or_greencard_category: ['employment-immigration'] })
+    expect(screen.getByRole('button', { name: /Submit posting/ })).toBeDisabled()
+  })
+
+  it('a SPECIFIC code (e.g. IR-1) alongside — or instead of — the generic one DOES enable Submit', async () => {
+    await previewWith({ current_visa_or_greencard_category: ['family-immigration', 'IR-1'] })
+    expect(screen.getByRole('button', { name: /Submit posting/ })).not.toBeDisabled()
+    expect(screen.queryByText(/need the exact category/i)).toBeNull()
+  })
+
+  it('no visa signal at all still shows the ORIGINAL generic-empty message, not the fallback-specific one', async () => {
+    await previewWith({})
+    expect(screen.getByRole('button', { name: /Submit posting/ })).toBeDisabled()
+    expect(screen.getByText(/Add at least one visa\/status under/i)).toBeInTheDocument()
+    expect(screen.queryByText(/need the exact category/i)).toBeNull()
+  })
+
+  it('a specific visa_applying_for code alone (unrelated to the fallback) still enables Submit as before', async () => {
+    await previewWith({ visa_applying_for: ['H-1B'] })
+    expect(screen.getByRole('button', { name: /Submit posting/ })).not.toBeDisabled()
+  })
+})
+
+// /post?type=discussion (and =blog) reuses this composer to author a
+// Discussions-feed entry: it carries the discussion/blog tag, hides the visa
+// sections, and RELAXES the visa gate (a general topic post needs no personal
+// visa). See DISCUSSION_KINDS in the page.
+describe('PostPage — discussion/blog mode (reuse /post for the Discussions feed)', () => {
+  let postingsBody: Record<string, unknown> | null
+
+  function mockDiscussionApi() {
+    postingsBody = null
+    global.fetch = vi.fn(async (url: string, opts?: { method?: string; body?: string }) => {
+      const u = String(url)
+      if (u.includes('/api/tag-vocab')) return json(VOCAB)
+      // tag-suggest emits no visa/status — a general topic post.
+      if (u.includes('/api/tag-suggest')) return json({
+        groups: { ...EMPTY_GROUPS }, relevant_sections: ['tags'],
+        posting_type: 'general_question', key_stages_or_info: {}, key_dates: {},
+      })
+      if (u.includes('/api/reconcile')) return json({}, false, 404) // exercise the no-reconcile branch
+      if (u.includes('/api/postings') && opts?.method === 'POST') {
+        postingsBody = JSON.parse(opts!.body as string)
+        return json({ case_id: 'disc-1', author_handle: 'anon-panda' })
+      }
+      return json({})
+    }) as unknown as typeof fetch
+  }
+
+  async function previewDiscussion() {
+    render(<PostPage />)
+    fireEvent.change(screen.getByPlaceholderText(/H-1B extension with an RFE/), { target: { value: 'How premium processing actually works' } })
+    fireEvent.change(screen.getByPlaceholderText(/Describe your situation/), {
+      target: { value: 'A general explainer on premium processing timelines and eligibility across form types.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    await screen.findByText('Review tags')
+  }
+
+  it('renders the discussion heading for ?type=discussion', async () => {
+    sp.value = new URLSearchParams('type=discussion')
+    mockDiscussionApi()
+    render(<PostPage />)
+    expect(await screen.findByRole('heading', { name: 'Start a discussion' })).toBeInTheDocument()
+  })
+
+  it('relaxes the visa gate: Submit is enabled with NO visa, and the visa-required message is hidden', async () => {
+    sp.value = new URLSearchParams('type=discussion')
+    mockDiscussionApi()
+    await previewDiscussion()
+    expect(screen.getByRole('button', { name: /Submit posting/ })).not.toBeDisabled()
+    expect(screen.queryByText(/Add at least one visa\/status under/i)).toBeNull()
+  })
+
+  it('hides the visa/status sections in discussion mode', async () => {
+    sp.value = new URLSearchParams('type=discussion')
+    mockDiscussionApi()
+    await previewDiscussion()
+    expect(screen.queryByText('Visa/category applying for')).toBeNull()
+    expect(screen.queryByText('Current status')).toBeNull()
+  })
+
+  it('submits the posting with the discussion tag attached', async () => {
+    sp.value = new URLSearchParams('type=discussion')
+    mockDiscussionApi()
+    await previewDiscussion()
+    fireEvent.click(screen.getByRole('button', { name: /Submit posting/ }))
+    await waitFor(() => expect(postingsBody).not.toBeNull())
+    const tags = (postingsBody!.tags as { tags: string[] }).tags
+    expect(tags).toContain('discussion')
+    expect(tags).not.toContain('blog')
+  })
+
+  it('toggling to Blog swaps the tag on the submitted posting', async () => {
+    sp.value = new URLSearchParams('type=discussion')
+    mockDiscussionApi()
+    render(<PostPage />)
+    // switch kind before writing
+    fireEvent.click(screen.getByRole('button', { name: 'Blog / how-to' }))
+    fireEvent.change(screen.getByPlaceholderText(/H-1B extension with an RFE/), { target: { value: 'A how-to on RFE responses' } })
+    fireEvent.change(screen.getByPlaceholderText(/Describe your situation/), {
+      target: { value: 'Step-by-step guide to responding to a Request for Evidence, generically.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    await screen.findByText('Review tags')
+    fireEvent.click(screen.getByRole('button', { name: /Submit posting/ }))
+    await waitFor(() => expect(postingsBody).not.toBeNull())
+    const tags = (postingsBody!.tags as { tags: string[] }).tags
+    expect(tags).toContain('blog')
+    expect(tags).not.toContain('discussion')
+  })
+
+  it('normal mode (no ?type) is unchanged: default heading, visa gate still enforced', async () => {
+    // sp defaults to empty in beforeEach → normal posting mode.
+    render(<PostPage />)
+    expect(await screen.findByRole('heading', { name: 'Post a new message' })).toBeInTheDocument()
   })
 })

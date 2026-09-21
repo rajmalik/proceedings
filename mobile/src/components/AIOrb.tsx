@@ -79,21 +79,21 @@ export function AIOrb({ animatedSize, size = 140, pulse = true }: AIorbProps) {
           <Defs>
             {/* Main radial gradient - red to dark */}
             <RadialGradient id="orbGradient" cx="35%" cy="35%" rx="60%" ry="60%">
-              <Stop offset="0%" stopColor="#FF4444" stopOpacity={1} />
-              <Stop offset="40%" stopColor="#AE0000" stopOpacity={1} />
-              <Stop offset="100%" stopColor="#5C0000" stopOpacity={1} />
+              <Stop offset="0%" stopColor={colors.orb.redBright} stopOpacity={1} />
+              <Stop offset="40%" stopColor={colors.orb.red} stopOpacity={1} />
+              <Stop offset="100%" stopColor={colors.orb.redDeep} stopOpacity={1} />
             </RadialGradient>
 
             {/* Highlight gradient for glossy 3D effect */}
             <RadialGradient id="highlight" cx="30%" cy="25%" rx="40%" ry="35%">
-              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.6} />
-              <Stop offset="100%" stopColor="#FFFFFF" stopOpacity={0} />
+              <Stop offset="0%" stopColor={colors.onPrimary} stopOpacity={0.6} />
+              <Stop offset="100%" stopColor={colors.onPrimary} stopOpacity={0} />
             </RadialGradient>
 
             {/* Secondary inner glow */}
             <RadialGradient id="innerGlow" cx="50%" cy="60%" rx="50%" ry="40%">
-              <Stop offset="0%" stopColor="#FF6666" stopOpacity={0.3} />
-              <Stop offset="100%" stopColor="#AE0000" stopOpacity={0} />
+              <Stop offset="0%" stopColor={colors.orb.redGlow} stopOpacity={0.3} />
+              <Stop offset="100%" stopColor={colors.orb.red} stopOpacity={0} />
             </RadialGradient>
           </Defs>
 
@@ -107,10 +107,10 @@ export function AIOrb({ animatedSize, size = 140, pulse = true }: AIorbProps) {
           <Ellipse cx="55" cy="45" rx="30" ry="22" fill="url(#highlight)" />
 
           {/* Small specular highlight */}
-          <Circle cx="45" cy="38" r="8" fill="#FFFFFF" opacity={0.5} />
+          <Circle cx="45" cy="38" r="8" fill={colors.onPrimary} opacity={0.5} />
 
           {/* Tiny sparkle highlight */}
-          <Circle cx="50" cy="32" r="3" fill="#FFFFFF" opacity={0.7} />
+          <Circle cx="50" cy="32" r="3" fill={colors.onPrimary} opacity={0.7} />
         </Svg>
       </Animated.View>
     </View>

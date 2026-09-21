@@ -25,7 +25,10 @@ export default function VoteControl({ contentId, score, yourVote = 0, orientatio
 
   async function cast(dir: 1 | -1) {
     if (busy) return
-    if (!getActiveUser()) { setHint('Select a user to vote'); return }
+    // "Select a user" was dev-picker jargon — a real signed-out visitor has
+    // no picker to select from (it's off in production); voting only ever
+    // requires being signed in.
+    if (!getActiveUser()) { setHint('Sign in to vote'); return }
     const target = (vote === dir ? 0 : dir) as -1 | 0 | 1
     const optimistic = s - vote + target
     const prev = { s, vote }

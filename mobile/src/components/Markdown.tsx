@@ -1,7 +1,11 @@
 import React from 'react';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import MarkdownDisplay from 'react-native-markdown-display';
 import { colors, spacing } from '../constants/theme';
+
+// No brand monospace is loaded; use each platform's built-in mono so code reads
+// as code without a silent serif fallback (UI_AUDIT §1).
+const MONO = Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' });
 
 // Mirrors website/src/components/Markdown.tsx - maps Markdown elements onto the
 // design system so AI replies, posting bodies and background text render the
@@ -41,7 +45,7 @@ export default function Markdown({ children, color = colors.onSurface, fontSize 
       color,
       borderRadius: 4,
       paddingHorizontal: 4,
-      fontFamily: 'Courier',
+      fontFamily: MONO,
       fontSize: fontSize - 1,
     },
     code_block: {
@@ -49,7 +53,7 @@ export default function Markdown({ children, color = colors.onSurface, fontSize 
       color,
       borderRadius: 6,
       padding: spacing.base,
-      fontFamily: 'Courier',
+      fontFamily: MONO,
       fontSize: fontSize - 1,
     },
     fence: {
@@ -57,7 +61,7 @@ export default function Markdown({ children, color = colors.onSurface, fontSize 
       color,
       borderRadius: 6,
       padding: spacing.base,
-      fontFamily: 'Courier',
+      fontFamily: MONO,
       fontSize: fontSize - 1,
     },
     hr: { backgroundColor: colors.outlineVariant, height: 1, marginVertical: spacing.md },

@@ -2,32 +2,43 @@
 
 Start here: **[[Proceedings — Project Overview]]**
 
+This vault documents the Proceedings codebase — a RAG immigration-intake assistant grounded on a **managed Vertex AI Search (Discovery Engine)** datastore, with a FastAPI backend, a Next.js website, and a React Native mobile app.
+
+> The original Firecrawl → self-managed Vector Search prototype is **retired** and archived under `legacy/`. Its per-script notes have been removed from this vault.
+
 ---
 
-## Pipeline Scripts
-- [[discover_urls.py]] — Stage 0: Auto-discover immigration law firm URLs
-- [[agent_crawl.py]] — Stage 1: Web crawling via trafilatura (replaced Firecrawl)
-- [[agent_label.py]] — Stage 2: Content labeling via Agent Engine (47 categories)
-- [[labeling_agent]] — Agent package: taxonomy + ImmigrationLabelingAgent class
-- [[pipeline.py]] — Orchestrator: crawl → label → index
-- [[continuous_crawl.py]] — Continuous mode: discover → crawl → label → index in a loop
-- [[index.py]] — Stage 3: Chunking, embedding, vector indexing (incremental)
-- [[query.py]] — Stage 4: RAG query engine with guardrails + Firestore logging
-- [[api.py]] — FastAPI server exposing RAG as HTTP endpoints
+## Backend (live — `backend/`)
+- [[api.py]] — FastAPI HTTP API (search, postings, profile, onboarding, reconcile, social, moderation)
+- [[search_client.py]] — grounded retrieval via the Answer/Search API + facets/strictness
+- [[query.py]] — Gemini helpers (direct answer, intent) + Firestore Q&A log
+- [[posting.py]] — user-posting + experience tagging → GCS sidecar → `documents.import`
+- [[profile.py]] — user profile + two-stage AI onboarding (Firestore `users/{id}`)
+- [[reconcile.py]] — profile ↔ message reconciliation at publish time
+- [[matching.py]] — "same boat" criteria chat + similarity scoring + group formation
+- [[interactions.py]] — replies + votes (transactional tallies)
+- [[group_messages.py]] — group chat messaging (PII scrub + moderation gate)
+- [[moderation.py]] — UGC reports / blocks / takedown (Apple 1.2 compliance)
 
-## Legacy (kept for reference)
-- [[crawler.py]] — Original Firecrawl-based crawler (replaced by agent_crawl.py)
-- [[auto_label.py]] — Original Gemini labeling (replaced by agent_label.py)
-- [[Label Studio Setup]] — Manual labeling on GCP VM
+## Frontends
+- [[Mobile App]] — React Native + Expo app (screens, components, contexts, services)
+- [[Design System]] — Meridian design tokens (colors, type, spacing, motion); full reference in `mobile/theme.md`
+- [[Website]] — Next.js 14 marketing + search/onboarding/posting UI
 
-## Infrastructure
-- [[Deployment]] — Cloud Run (API) + Vercel (website) + Agent Engine
-- [[Statistics & Analytics]] — Chunks, labels, Q&A performance, quality timeline
-- [[GCP Setup]] — Bucket provisioning script
-- [[Website]] — Next.js site with `/ask` Q&A page
+## Infrastructure & process
+- [[Deployment]] — Cloud Run (API) + Vercel (website) + Expo (mobile)
+- [[GCP Setup]] — bucket provisioning script
+- [[Docs Map]] — index of the `docs/` tree (CI/CD, release, ingestion, tagging, app specs)
+
+## Taxonomy & tagging
+- [[us_immigration_tag_specification]] — authoritative tag categories & naming rules
+- [[JSON-SCHEMA-FIELD-DICTIONARY]] — posting metadata field rules
+- [[LLM-EXTRACTION-PROMPT]] — production tagging system prompt
+- [[TAGGING-EVALUATION]] — tagging accuracy evaluation
+- [[posting-specs]] — posting structure notes
 
 ## Business
-- [[Business Documents]] — All client-facing documents
-- [[Data Intake Checklist]] — Client onboarding form
+- [[Business Documents]] — all client-facing documents
+- [[Data Intake Checklist]] — client onboarding form
 - [[Launch Requirements]] — V1 vs Later prioritization
-- [[Pilot Offer]] — 30-day pilot one-pager ($750)
+- [[Pilot Offer]] — 30-day pilot one-pager

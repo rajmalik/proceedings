@@ -1,0 +1,82 @@
+H1 July PP Updates - Mega Thread
+July filing thread for updates:
+
+Template you can copy and paste to update data.
+
+Filed date:
+Receipt date:
+PP start date:
+Current status:
+Final decision & date:
+Service center: TX
+----------------------------------
+1. Petition Delivery & Intake
+       ↓
+2. Form I-797C Receipt Notice Issued
+       ↓
+3. Case Status Updates: "Active Review"
+       ↓
+4. Adjudication Action:
+   ├── [Path A] Direct Approval / Denial
+   └── [Path B] Request for Evidence (RFE) / NOID
+            ↓
+            Response Received & Re-adjudication
+       ↓
+5. Final Approval Notice (Form I-797A / I-797B)
+       ↓
+6. Activation / Consular Processing (if applicable)
+-----------------------------------
+(dropdown 1)
+Processing Type: H1B
+
+(dropdown 2)
+
+Application type:
+CoS (Initial)
+/ Consular (Initial)
+/ H1B COE
+
+Application filed:
+Month
+Year
+
+Parametsrs at the time of joining:
+
+Premium Processing: Yes / No
+Receipt date (Petition Submission Date):
+Actively being reviewed date:
+Approved Date:
+Service Center :
+Current status: NOID, RFE, NOIR, NOIRescind
+RFE Date:
+Biometrics appointment date:
+ADmin processing YES / NO
+Interview date:
+Final decision: Approved / Denied / Rejected
+Final decision date:
+
+-----------------------------------
+
+Oct 2025 H1B Processing Timeline (Regular + Premium)
+Hi everyone,
+
+I’m creating this dedicated thread to track timelines for Oct filers. Please share your details below so others can refer to and compare progress. Let’s make this a mega thread for all Oct applicants!
+
+Format:
+
+Application type: H1B CoS (Initial) / H1B Consular (Initial) / H1B COE
+Premium Processing: Yes / No
+Receipt date (Petition Submission Date):
+Actively being reviewed date:
+Approved Date:
+Service Center (if known):
+
+-----------------------------------
+
+Filed date:
+Receipt date:
+PP start date:
+Current status:
+Final decision & date:
+Service center: TX
+------------------------------------------------

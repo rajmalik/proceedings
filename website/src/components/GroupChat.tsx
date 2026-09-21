@@ -25,7 +25,7 @@ function timeAgo(iso: string): string {
   return new Date(t).toLocaleDateString()
 }
 
-const POLL_MS = 4000
+const POLL_MS = 1500
 
 // Members-only group chat. v1 real-time = polling every ~4s with a `since`
 // cursor (the cursor only advances on server fetches; sends are appended

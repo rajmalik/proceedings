@@ -45,6 +45,34 @@ def group_a() -> None:
     check("A3 username_for resolves roster id", pr.username_for(first) == users[0]["username"])
     check("A4 username_for falls back to the id for unknown", pr.username_for("nope") == "nope")
 
+    # A5-A6: handle_for(db=None) — no Firestore available, must behave exactly
+    # like username_for() (roster lookup, then raw-uid fallback). The Firestore-
+    # aware branch (the actual bug fix — Groups: raw uid displayed instead of a
+    # real handle) needs a live db and is covered in group D (integration).
+    check("A5 handle_for(None, ...) resolves a roster id same as username_for",
+          pr.handle_for(None, first) == users[0]["username"])
+    check("A6 handle_for(None, ...) falls back to the raw id, same as username_for",
+          pr.handle_for(None, "nope") == "nope")
+
+    # A7: a Firestore lookup failure (not just "no db") must not blow up the
+    # caller — handle_for() catches and falls back to username_for(), same
+    # as the no-db path above. Stub out just enough of the client chain
+    # (.collection().document().get()) to raise.
+    class _RaisingDoc:
+        def get(self):
+            raise RuntimeError("simulated Firestore outage")
+
+    class _RaisingCollection:
+        def document(self, _uid):
+            return _RaisingDoc()
+
+    class _RaisingDb:
+        def collection(self, _name):
+            return _RaisingCollection()
+
+    check("A7 handle_for falls back to username_for when the Firestore lookup raises",
+          pr.handle_for(_RaisingDb(), first) == users[0]["username"])
+
 
 # ---------------------------------------------------------------------------
 # B — profile shape / cleaning / PII / validate / merge (UNIT)
@@ -394,6 +422,31 @@ def group_d() -> None:
               and re["key_dates"] == {"opt_expire_date": "2027-05-31"},
               f"stages={re['key_stages_or_info']} dates={re['key_dates']}")
 
+        # D14-D17: POST /api/profile/key-dates — the post-join Timeline
+        # attribute form's save endpoint. Unlike PUT /api/profile (a full
+        # replace, D9 above), this is a PARTIAL merge: it must add/overwrite
+        # only the given keys and leave everything else (including other
+        # key_dates keys, and non-key_dates fields entirely) untouched.
+        client.put("/api/profile", headers=hdr, json={
+            "current_visa_or_greencard_category": ["F-1"],
+            "tags": ["premium-processing"],
+            "key_dates": {"opt_expire_date": "2027-05-31"}})
+        kd = client.post("/api/profile/key-dates", headers=hdr, json={
+            "key_dates": {"ead_filed_date": "2026-03-01", "rfe_date": "2026-04-15"}})
+        kdj = kd.json()
+        check("D14 POST key-dates 200 + adds the new keys",
+              kd.status_code == 200 and kdj["key_dates"].get("ead_filed_date") == "2026-03-01"
+              and kdj["key_dates"].get("rfe_date") == "2026-04-15", f"status={kd.status_code}")
+        check("D15 POST key-dates preserves a pre-existing key_dates entry not in the request",
+              kdj["key_dates"].get("opt_expire_date") == "2027-05-31", str(kdj["key_dates"]))
+        check("D16 POST key-dates leaves other profile fields untouched (visa, tags)",
+              kdj["current_visa_or_greencard_category"] == ["F-1"] and kdj["tags"] == ["premium-processing"],
+              f"visa={kdj['current_visa_or_greencard_category']} tags={kdj['tags']}")
+        kd2 = client.post("/api/profile/key-dates", headers=hdr, json={
+            "key_dates": {"ead_filed_date": "2026-03-05"}})
+        check("D17 POST key-dates overwrites a matching key on a second call",
+              kd2.json()["key_dates"].get("ead_filed_date") == "2026-03-05", str(kd2.json()["key_dates"]))
+
     # cleanup the test user's Firestore doc
     try:
         if api._db is not None:
@@ -401,6 +454,35 @@ def group_d() -> None:
             check("D8 cleanup of test profile doc", True)
     except Exception as e:  # noqa: BLE001
         check("D8 cleanup of test profile doc", False, str(e))
+
+    # D10-D12: handle_for(db, uid) — the actual Groups bug fix. A real
+    # (non-seed, Firebase-registered) user has NO entry in the static seed
+    # roster, so the OLD code path (username_for(uid) alone, with no
+    # Firestore fallback — what matching.py/group_messages.py called before
+    # this fix) returns the raw uid unchanged. handle_for() must instead
+    # find the real handle random_username() assigned at registration.
+    new_uid = ""
+    with TestClient(api.app) as client:
+        reg = client.post("/api/users", json={})
+        reg_ok = reg.status_code == 200 and reg.json().get("id") and reg.json().get("username")
+        check("D10 POST /api/users registers a fresh non-seed uid with a real handle",
+              reg_ok, f"status={reg.status_code} body={reg.text[:200]}")
+        if reg_ok:
+            new_uid, real_handle = reg.json()["id"], reg.json()["username"]
+            check("D11 handle_for(db, uid) resolves the REAL registered handle, not the raw uid",
+                  api._db is not None and pr.handle_for(api._db, new_uid) == real_handle,
+                  f"handle_for={pr.handle_for(api._db, new_uid) if api._db else 'no db'} real={real_handle}")
+            check("D12 the OLD code path (username_for alone) would have returned the raw uid "
+                  "— confirms this really is a bug fix, not a no-op",
+                  pr.username_for(new_uid) == new_uid, pr.username_for(new_uid))
+
+    # cleanup the synthetic registered user
+    try:
+        if api._db is not None and new_uid:
+            api._db.collection("users").document(new_uid).delete()
+            check("D13 cleanup of synthetic registered user", True)
+    except Exception as e:  # noqa: BLE001
+        check("D13 cleanup of synthetic registered user", False, str(e))
 
 
 def main() -> int:

@@ -1,99 +1,99 @@
 # Proceedings — Project Overview
 
-**Type:** RAG (Retrieval-Augmented Generation) pipeline for legal intake
-**Domain:** US immigration law
-**Status:** Deployed — API on Cloud Run, website on Vercel
-**Fallback rate:** ~10% (down from 54.5%)
+**Type:** RAG (Retrieval-Augmented Generation) immigration-intake assistant
+**Domain:** US immigration & visas
+**Grounding sink:** Managed **Vertex AI Search (Discovery Engine)** datastore `imm-postings-datastore`
+**Surfaces:** FastAPI backend (Cloud Run) · Next.js website (Vercel) · React Native + Expo mobile app
 
 ---
 
 ## What It Does
 
-Proceedings is an AI-powered immigration law Q&A platform that crawls government and law firm websites, labels content with a 20-category immigration taxonomy using a Vertex AI Agent Engine agent, indexes it into a vector database, and answers user questions — with strict guardrails against providing legal advice.
+Proceedings grounds answers on user/Reddit postings indexed in the managed **Vertex AI Search (Discovery Engine)** datastore, and serves answers + auto-tagged postings + AI onboarding via **Gemini** — with strict guardrails against providing legal advice. Users post their immigration experiences, get matched with others in the "same boat," ask grounded questions, and chat in groups.
+
+> The original prototype (Firecrawl crawl → label → self-managed Vertex AI Vector Search) is **retired** and archived under `legacy/`. It is not deployed, and its per-script notes have been removed from this vault.
 
 ---
 
 ## Architecture
 
 ```
-discover_urls.py → url_registry.json → agent_crawl.py (Firecrawl) → crawled_pages/ → GCS /crawled/
-                                                                           ↓
-                                                           agent_label.py (Agent Engine / Gemini 2.5 Flash)
-                                                                           ↓
-                                                                 GCS /labeled/ (20 immigration categories)
-                                                                           ↓
-                                                                      index.py (incremental)
-                                                           (chunk → embed → vector index)
-                                                                           ↓
-                                                    Vertex AI Vector Search + chunk_mapping.json
-                                                                           ↓
-                           User → Vercel (Next.js /ask) → Cloud Run (api.py) → query.py
-                                                                           ↓
-                                                           Gemini 2.5 Flash → answer
-                                                                           ↓
-                                                               Firestore (Q&A storage)
+                        ┌─────────────────────────────────────────┐
+User posting ──────────►│ posting.py: tag (Gemini) → GCS sidecar   │
+(app / website)         │           → documents.import             │
+                        └──────────────────┬──────────────────────┘
+                                           ▼
+                        Vertex AI Search (Discovery Engine) datastore
+                                  `imm-postings-datastore`
+                                           ▲
+Question ──► api.py ──► search_client.py (Answer/Search API, facets, strictness)
+                 │                         │
+                 │                         ▼
+                 └──► query.py (Gemini direct-answer / intent) ──► Firestore Q&A log
+
+Profiles & onboarding: profile.py → Firestore users/{id}
+Social layer: matching.py (same-boat) · interactions.py (votes/replies) ·
+              group_messages.py (chat) · moderation.py (reports/blocks/takedown)
+
+Clients:  Mobile App (Expo)  ·  Website (Next.js on Vercel)  →  api.py on Cloud Run
 ```
 
 ---
 
-## Pipeline Stages
+## Backend Modules (`backend/`)
 
-| Stage | Script | What It Does |
-|-------|--------|--------------|
-| 0. Discover | [[discover_urls.py]] | Auto-finds immigration law firm URLs via web search and seed lists |
-| 1. Crawl | [[agent_crawl.py]] | Scrapes URLs via Firecrawl (JS rendering), adds YAML frontmatter, uploads to GCS |
-| 2. Label | [[agent_label.py]] | Classifies content into 20 immigration categories via Agent Engine (Gemini 2.5 Flash) |
-| 3. Index | [[index.py]] | Downloads labeled data, chunks into ~512 tokens, embeds with `text-embedding-005`, upserts to Vector Search (incremental) |
-| 4. Serve | [[api.py]] → [[query.py]] | FastAPI on Cloud Run: embeds question, retrieves top-5 chunks, generates answer via Gemini 2.5 Flash, saves Q&A to Firestore |
-| 5. Frontend | [[Website]] `/ask` page | Next.js on Vercel: ask form, category pills, popular questions, source citations, feedback, recent Q&A |
-| Auto | [[continuous_crawl.py]] | Runs stages 0-3 in a loop |
-
-**Full pipeline:** `python pipeline.py`
-
----
-
-## Current Stats
-
-| Metric | Value |
-|--------|-------|
-| URLs registered | 231 |
-| Pages crawled | 181+ |
-| Chunks indexed | 725 |
-| Label categories | 20 (immigration-only) |
-| Fallback rate | ~10% |
-| Unique domains | 20+ |
-| Test accuracy | 9/10 questions answered |
+| Module | Role | Note |
+|---|---|---|
+| `api.py` | FastAPI HTTP API — all endpoints | [[api.py]] |
+| `search_client.py` | Grounded retrieval (Answer/Search API), facets, strictness | [[search_client.py]] |
+| `query.py` | Gemini helpers (direct answer, intent) + Firestore Q&A log | [[query.py]] |
+| `posting.py` | Posting + experience tagging → GCS sidecar → `documents.import` | [[posting.py]] |
+| `profile.py` | User profile + two-stage AI onboarding (`users/{id}`) | [[profile.py]] |
+| `reconcile.py` | Profile ↔ message reconciliation at publish time | [[reconcile.py]] |
+| `matching.py` | "Same boat" criteria chat + similarity + group formation | [[matching.py]] |
+| `interactions.py` | Replies + votes (transactional tallies) | [[interactions.py]] |
+| `group_messages.py` | Group chat messaging (PII scrub + moderation) | [[group_messages.py]] |
+| `moderation.py` | UGC reports / blocks / takedown (Apple 1.2) | [[moderation.py]] |
 
 ---
 
-## Taxonomy (20 Immigration Categories)
+## Clients
 
-h1b-visa, family-based-immigration, asylum-refugees, naturalization-citizenship, daca, employment-green-cards, eb5-investor-visa, student-visas, temporary-work-visas, diversity-visa-lottery, deportation-defense, humanitarian-parole, tps, visa-fees-filing, consular-processing, adjustment-of-status, travel-documents, work-authorization, immigration-court, general-immigration-info
-
-Defined in [[labeling_agent]].
+- **[[Mobile App]]** — React Native + Expo; auth, onboarding, feed/community, AI chat, profile. Design tokens in [[Design System]] (`mobile/theme.md`).
+- **[[Website]]** — Next.js 14 marketing + search/onboarding/posting UI, shares the same design tokens (Tailwind config).
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| Crawling | Firecrawl API (JS rendering) |
-| Storage | Google Cloud Storage |
-| Labeling | Vertex AI Agent Engine (Gemini 2.5 Flash) |
-| Embeddings | Vertex AI `text-embedding-005` (768-dim) |
-| Vector DB | Vertex AI Vector Search (Tree-AH, DOT_PRODUCT) |
-| Generation | Gemini 2.5 Flash (Vertex AI) |
-| API server | FastAPI on Cloud Run |
-| Q&A storage | Firestore (`qa_pairs` collection) |
+|---|---|
+| Retrieval / grounding | Vertex AI Search (Discovery Engine) — Answer/Search API |
+| Tagging & answers | Gemini (Vertex AI) |
+| Doc storage | Google Cloud Storage sidecars → `documents.import` |
+| App data | Firestore (`users`, `qa_pairs`, `replies`, `votes`, `groups`, `reports`, `blocks`, …) |
+| API server | FastAPI on Cloud Run (`immiguide-api`) |
 | Website | Next.js 14 on Vercel, React 18, Tailwind CSS, TypeScript |
+| Mobile | React Native + Expo, Reanimated, Firebase Auth |
 
 ---
 
 ## Key Design Decisions
 
-1. **Embedding model consistency** — Both indexing (`RETRIEVAL_DOCUMENT`) and querying (`RETRIEVAL_QUERY`) must use `text-embedding-005`.
-2. **Guardrails** — Gemini prompt allows factual eligibility info but blocks case-specific legal advice. Improved fallback detection catches paraphrased refusals.
-3. **Junk chunk filtering** — 404 pages, boilerplate, navigation removed during indexing (~70 filtered per run).
-4. **Firecrawl over trafilatura** — Firecrawl renders JavaScript, enabling crawling of law firm sites that trafilatura couldn't handle.
-5. **Immigration-only taxonomy** — 20 focused categories instead of 47 broad US law categories for better classification accuracy.
+1. **Managed grounding** — retrieval is delegated to the Discovery Engine datastore via the Answer/Search API ([[search_client.py]]); the app no longer manages its own embeddings/index.
+2. **Guardrails** ([[query.py]]) — the Gemini prompt forbids legal advice, eligibility determinations, and case assessments; a `FALLBACK_MESSAGE` is returned when context is insufficient.
+3. **Provenance identity** — first-party postings carry an `APP_SOURCE_SYSTEM` / `APP_BASE_URL` provenance (default `meridianjourney` / `https://meridianjourney.ai`); the `channel` token stays `"app"`.
+4. **UGC compliance** (Apple 1.2) — [[moderation.py]] adds report/block/takedown flows and content filtering.
+
+---
+
+## Repo Layout
+
+| Path | Contents |
+|---|---|
+| `backend/` | Live FastAPI service + modules (above) |
+| `mobile/` | React Native + Expo app → [[Mobile App]] |
+| `website/` | Next.js app → [[Website]] |
+| `docs/` | Architecture, CI/CD, release, ingestion, tagging, business → [[Docs Map]] |
+| `legacy/` | Retired Firecrawl → Vector Search prototype (not deployed) |
+| `proceedings-obsidian/` | This documentation vault |

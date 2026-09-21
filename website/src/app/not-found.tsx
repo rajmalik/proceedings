@@ -8,7 +8,7 @@ export default function NotFound() {
       <p className="text-body-md text-on-surface-variant mb-6 max-w-md">
         The page you’re looking for doesn’t exist or may have moved.
       </p>
-      <Link href="/search" className="btn-primary">Go to Search</Link>
+      <Link href="/" className="btn-primary">Go to Search</Link>
     </div>
   )
 }

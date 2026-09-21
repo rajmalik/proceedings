@@ -49,7 +49,7 @@ export function WelcomeScreen() {
               Meridian
             </AppText>
             <AppText variant="bodyLg" color="inverseOnSurface" align="center" style={styles.tagline}>
-              Your journey begins here
+              Your USA Immigration Journey Starts Here
             </AppText>
           </Animated.View>
         </View>

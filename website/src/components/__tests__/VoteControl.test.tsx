@@ -59,12 +59,12 @@ describe('VoteControl', () => {
     expect(JSON.parse((global.fetch as unknown as Mock).mock.calls[0][1].body)).toEqual({ content_id: 'c1', dir: -1 })
   })
 
-  it('does not call the API when no user is active, and hints to pick one', async () => {
+  it('does not call the API when no user is active, and hints to sign in', async () => {
     ;(getActiveUser as unknown as Mock).mockReturnValue('')
     render(<VoteControl contentId="c1" score={2} yourVote={0} />)
 
     fireEvent.click(screen.getByLabelText('Upvote'))
-    await waitFor(() => expect(screen.getByTitle('Select a user to vote')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle('Sign in to vote')).toBeInTheDocument())
     expect(global.fetch).not.toHaveBeenCalled()
     expect(screen.getByText('2')).toBeInTheDocument() // unchanged
   })

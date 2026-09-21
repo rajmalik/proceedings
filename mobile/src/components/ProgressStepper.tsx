@@ -42,6 +42,7 @@ export function ProgressStepper({ steps, currentStep }: ProgressStepperProps) {
                 </Text>
               </Animated.View>
               <Text
+                numberOfLines={1}
                 style={[
                   styles.stepLabel,
                   (isCompleted || isCurrent) && styles.stepLabelActive,
@@ -81,7 +82,9 @@ const styles = StyleSheet.create({
   },
   stepContent: {
     alignItems: 'center',
-    width: 60,
+    // Wide enough for the longest step label ("Experiences") at 12px so it
+    // stays on one line instead of wrapping/cutting off.
+    width: 92,
   },
   stepCircle: {
     width: 32,

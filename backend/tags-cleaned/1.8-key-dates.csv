@@ -14,6 +14,8 @@ l1_expire_date,Expiration date of L-1 status
 o1_expire_date,Expiration date of O-1 status
 h1b_receipt_date,Date USCIS receipt notice was issued for an H-1B petition
 h1b_approved_date,Date the H-1B petition was approved
+h1b_review_started_date,"Date USCIS moved the H-1B petition to ""Case Is Being Actively Reviewed"" (the status between receipt and decision)"
+final_decision_date,"Date the final decision was issued on a petition or application, whatever the outcome (approved / denied / rejected)"
 h1b_filed_date,Date the H-1B petition was filed
 h1b_expire_date,Expiration date of H-1B status
 h1b_processing_start_date,Date H-1B processing began at USCIS
@@ -23,7 +25,7 @@ i131_filed_date,Date Form I-131 was filed
 i140_filed_date,Date Form I-140 was filed
 i140_approved_date,Date Form I-140 was approved
 i485_filed_date,Date Form I-485 was filed
-i765_filed_date,Date Form I-765 was filed
+ead_filed_date,Date EAD application (Form I-765) was filed
 i94_expire_date,Expiration date on Form I-94
 i94_admit_until_date,Admit-until date shown on the I-94
 i797a_receipt_date,Date Form I-797A was received
@@ -58,3 +60,6 @@ perm_approved_date,Date the PERM labor certification was approved
 cap_gap_expire_date,End date of the F-1 cap-gap extension (typically Sep 30 of the fiscal year)
 passport_renewal_date,Date the candidate's passport was renewed
 visa_refused_date,Date a visa application was refused at a consular interview
+noid_date,Date a Notice of Intent to Deny was issued
+ead_card_produced_date,Date USCIS began producing the physical EAD card
+ead_card_received_date,Date the physical EAD card was received

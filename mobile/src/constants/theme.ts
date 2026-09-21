@@ -110,9 +110,14 @@ export const colors = {
     googleBorder: 'rgba(255, 255, 255, 0.22)',
   },
 
-  // AI orb gradient stops (previously hardcoded in AIChatScreen + ChatInput)
+  // AI orb gradient stops (previously hardcoded in AIChatScreen + ChatInput + AIOrb).
+  // redBright/redGlow/redDeep are the orb's own highlight ramp — kept as tokens so the
+  // signature orb has no raw hex, without changing its rendered look (UI_AUDIT §1/§10).
   orb: {
     red: '#AE0000',
+    redBright: '#FF4444',
+    redGlow: '#FF6666',
+    redDeep: '#5C0000',
     pink: '#E85F9E',
     purple: '#7B3FA0',
   },
@@ -135,6 +140,13 @@ export const colors = {
   // Cool accent (for AI screens)
   coolAccent: '#8B5CF6',
   coolAccentLight: '#A78BFA',
+
+  // Modal/overlay scrim — one token for the dark dim behind sheets & dropdowns
+  // (was duplicated as rgba(0,0,0,0.5)/0.35 across Select/ChatModal/ContentActionsMenu).
+  scrim: 'rgba(0, 0, 0, 0.5)',
+
+  // Neutral shadow color (matches the shadows.* tokens) for elevation drop-shadows.
+  shadowTint: '#1a202c',
 };
 
 // Type scale tightened per UI-beautify.md §3.1 (smaller) — larger sizes
@@ -182,6 +194,19 @@ export const typography = {
     fontSize: 15,
     lineHeight: 22,
   },
+  // Small body — the dominant inline size (14) that had no token (UI_AUDIT §1).
+  bodySm: {
+    fontFamily: 'NunitoSans_400Regular',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  // Bold small-body (14) — the vote-score role that had only an inline
+  // `NunitoSans_700Bold`/fontSize:14 literal (nested-replies A1 fix).
+  labelBold: {
+    fontFamily: 'NunitoSans_700Bold',
+    fontSize: 14,
+    lineHeight: 20,
+  },
   labelMd: {
     fontFamily: 'NunitoSans_600SemiBold',
     fontSize: 13,
@@ -192,6 +217,13 @@ export const typography = {
     fontFamily: 'NunitoSans_400Regular',
     fontSize: 12,
     lineHeight: 16,
+  },
+  // Overlines / chips / tab labels — the size-11 role that had no token (UI_AUDIT §1).
+  overline: {
+    fontFamily: 'NunitoSans_600SemiBold',
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 0.5,
   },
 };
 

@@ -68,6 +68,30 @@ def username_for(user_id: str) -> str:
     return user_id
 
 
+def handle_for(db, user_id: str) -> str:
+    """The user's real assigned handle when they're a registered (Firebase)
+    user — checks Firestore `users/{uid}.username` first (the handle
+    `random_username()` actually assigned at registration), falling back to
+    the static seed-roster lookup, then finally the raw uid.
+
+    `username_for()` alone only knows the seed roster and returns the raw
+    uid unchanged for anyone else — the same gap `get_profile()` already
+    works around inline (`data.get("username") or username_for(user_id)`,
+    profile.py's own GET path) but that group code (matching.py,
+    group_messages.py) bypassed by calling `username_for()` directly,
+    displaying a raw uid as a member's "handle" instead of their real one."""
+    if db is not None:
+        try:
+            snap = db.collection("users").document(user_id).get()
+            if snap.exists:
+                h = (snap.to_dict() or {}).get("username")
+                if h:
+                    return h
+        except Exception as e:  # noqa: BLE001 — a lookup failure must not block the caller
+            print(f"profile.handle_for error: {e}")
+    return username_for(user_id)
+
+
 @functools.lru_cache(maxsize=1)
 def seed_usernames() -> frozenset:
     """The baked seed-roster handles (e.g. `arjun-h1b`) — never treated as a

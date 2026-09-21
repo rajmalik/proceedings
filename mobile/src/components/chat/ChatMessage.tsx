@@ -105,7 +105,9 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.lg,
   },
   userBubble: {
-    backgroundColor: colors.primary,
+    // Unified "you" bubble token pair, matching GroupChat/FindScreen (UI_AUDIT §1 —
+    // was solid primary+white here vs primaryContainer+dark elsewhere).
+    backgroundColor: colors.primaryContainer,
     borderBottomRightRadius: borderRadius.sm,
   },
   assistantBubble: {
@@ -117,7 +119,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   userText: {
-    color: colors.onPrimary,
+    color: colors.onPrimaryContainer,
   },
   assistantText: {
     color: colors.onSurface,

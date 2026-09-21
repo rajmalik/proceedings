@@ -4,12 +4,15 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { userHeaders } from '@/lib/activeUser';
 import BrandMark from '@/components/BrandMark';
 
 const navItems = [
-  { href: '/search', label: 'Community', icon: 'search' },
+  { href: '/', label: 'Home', icon: 'home' },
   { href: '/find', label: 'Groups', icon: 'diversity_3' },
-  // Removed for now: 'News' (/news), 'Forum' (/community), 'Ask a Pro' (/pro).
+  { href: '/news', label: 'News', icon: 'newspaper' },
+  { href: '/discussions', label: 'Discussions', icon: 'forum' },
+  // Still removed: 'Community' (/community, dead mock forum), 'Ask a Pro' (/pro).
 ];
 
 export default function TopAppBar() {
@@ -17,7 +20,23 @@ export default function TopAppBar() {
   const router = useRouter();
   const { user, loading, signOut } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [handle, setHandle] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Never show the real Firebase displayName/email here — mirror the
+  // anonymized handle shown on the profile page instead (same fetch
+  // pattern as app/profile/page.tsx). Anonymity mimics reddit.com: your
+  // real identity is never surfaced anywhere in the product.
+  useEffect(() => {
+    if (!user) {
+      setHandle('');
+      return;
+    }
+    fetch('/api/profile', { headers: userHeaders() })
+      .then((r) => r.json())
+      .then((p: { username?: string }) => setHandle(p.username || ''))
+      .catch(() => setHandle(''));
+  }, [user]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -102,10 +121,7 @@ export default function TopAppBar() {
                   {/* User info */}
                   <div className="px-4 py-3 border-b border-outline-variant">
                     <p className="text-label-md font-medium text-on-surface truncate">
-                      {user.displayName || 'User'}
-                    </p>
-                    <p className="text-caption text-on-surface-variant truncate">
-                      {user.email}
+                      {handle || 'Anonymous'}
                     </p>
                   </div>
 

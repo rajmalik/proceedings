@@ -212,7 +212,7 @@ export function ChatModal({ visible, onClose }: ChatModalProps) {
               <ChatInput
                 onSend={handleSend}
                 disabled={isLoading}
-                placeholder="Ask about visa experiences..."
+                placeholder="Ask about USA visits/migration journey..."
               />
             </KeyboardAvoidingView>
           </SafeAreaView>
@@ -225,7 +225,7 @@ export function ChatModal({ visible, onClose }: ChatModalProps) {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: colors.scrim,
     justifyContent: 'flex-end',
   },
   overlayTouchable: {
@@ -261,8 +261,9 @@ const styles = StyleSheet.create({
   aiIcon: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.secondary,
+    borderRadius: borderRadius.full,
+    // Brand the AI chip (was gray secondary → looked disabled) — UI_AUDIT §10.
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },

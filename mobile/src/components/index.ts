@@ -40,3 +40,4 @@ export type { MatchData } from './MatchCard';
 export { GroupChat } from './GroupChat';
 export type { ChatMessage } from './GroupChat';
 export { ChipSelector } from './ChipSelector';
+export { TagPicker } from './TagPicker';

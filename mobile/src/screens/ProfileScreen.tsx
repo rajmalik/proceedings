@@ -50,7 +50,7 @@ export function ProfileScreen() {
   const navigation = useNavigation();
   // Hidden when Profile is a bottom-tab root (nothing to go back to); shown when
   // pushed from another stack via the header profile icon.
-    const { user, signOut } = useAuth();
+    const { signOut } = useAuth();
   const { hasAIConsent, grantAIConsent, declineAIConsent } = useAIConsent();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -347,9 +347,6 @@ export function ProfileScreen() {
                     <Ionicons name="pencil" size={16} color={colors.onSurfaceVariant} />
                   </TouchableOpacity>
                 </View>
-              )}
-              {user?.email && (
-                <Text style={styles.email}>{user.email}</Text>
               )}
               {profile?.created_at && (
                 <Text style={styles.memberSince}>
@@ -827,11 +824,6 @@ const styles = StyleSheet.create({
     fontSize: typography.caption.fontSize,
     color: colors.onSurfaceVariant,
     marginTop: 4,
-  },
-  email: {
-    fontSize: typography.bodyMd.fontSize,
-    color: colors.onSurfaceVariant,
-    marginTop: 2,
   },
   memberSince: {
     fontSize: typography.caption.fontSize,

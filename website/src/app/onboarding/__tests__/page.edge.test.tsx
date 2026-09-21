@@ -10,7 +10,9 @@ vi.mock('@/lib/activeUser', () => ({
   DEMO_PICKER_ENABLED: true,
 }))
 vi.mock('@/components/Markdown', () => ({ default: ({ children }: { children: string }) => <div>{children}</div> }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(), useRouter: () => ({ push: vi.fn() }) }))
 
 const VOCAB = {
   visa: ['H-1B', 'EB-2'], consulate: ['BOM', 'IN'],

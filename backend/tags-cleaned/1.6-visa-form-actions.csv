@@ -54,8 +54,6 @@ i485-rfe,I-485,Request for Evidence on an I-485 application
 i539-filing,I-539,Filing of Form I-539 (Extend/Change Nonimmigrant Status)
 i539-extension,I-539,Extension of nonimmigrant status via Form I-539
 i539-withdrawn,I-539,Withdrawal of a pending I-539 application
-i765-filing,I-765,Filing of Form I-765 (Application for EAD)
-i765-approval,I-765,Approval of an EAD application
 i131-filing,I-131,Filing of Form I-131 (Advance Parole)
 i131-approval,I-131,Approval of an Advance Parole application
 i751-filing,I-751,Filing of Form I-751 (Remove Conditions on Residence)

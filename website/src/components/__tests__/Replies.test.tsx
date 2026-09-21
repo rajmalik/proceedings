@@ -3,9 +3,13 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import Replies from '../Replies'
 import type { ReplyCardData } from '../ReplyItem'
 
+// No Firebase session in these tests — the demo-picker mock below (which
+// getActiveUser() falls back to) is what drives hasUser, same as before.
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: null, loading: false }) }))
 vi.mock('@/lib/activeUser', () => ({
   getActiveUser: vi.fn(() => 'demo-arjun'),
   userHeaders: vi.fn(() => ({})),
+  DEMO_PICKER_ENABLED: true,
 }))
 import { getActiveUser } from '@/lib/activeUser'
 
@@ -37,11 +41,11 @@ describe('Replies', () => {
     expect(await screen.findByPlaceholderText(/Share your experience/i)).toBeInTheDocument()
   })
 
-  it('gates the composer behind a user picker when none is active', async () => {
+  it('gates the composer behind sign-in when no user is active', async () => {
     ;(getActiveUser as unknown as Mock).mockReturnValue('')
     mockList([])
     render(<Replies postingId="p1" />)
-    expect(await screen.findByText(/Select a user/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Sign in/i)).toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/Share your experience/i)).toBeNull()
   })
 

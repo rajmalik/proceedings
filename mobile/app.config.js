@@ -3,7 +3,7 @@ export default {
 name: "Meridian",
     slug: "meridian",
     owner: "krishmalik",
-    version: "1.0.0",
+    version: "1.1.0",
     scheme: "meridian",
     orientation: "portrait",
     icon: "./assets/meridian-appstore-logo.png",

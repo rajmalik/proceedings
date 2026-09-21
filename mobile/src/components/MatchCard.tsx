@@ -25,6 +25,7 @@ export function MatchCard({ match, checked, onToggle }: MatchCardProps) {
       onPress={() => onToggle(match.user_id)}
       scaleTo={0.97}
       haptics="medium"
+      accessibilityLabel={`Include ${match.username}`}
       style={[
         styles.container,
         checked ? styles.containerChecked : styles.containerUnchecked,

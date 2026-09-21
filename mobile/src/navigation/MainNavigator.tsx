@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, ActivityIndicator, Platform, DeviceEventEmitter } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator, NativeStackNavigationOptions } from '@react-navigation/native-stack';
 import {
   SearchScreen,
+  AdvancedSearchScreen,
   CaseDetailsScreen,
   AuthorScreen,
   AuthorByHandleScreen,
   FindScreen,
   PostScreen,
   GroupChatScreen,
+  GroupAttributesScreen,
   LoginScreen,
   SignupScreen,
   EmailVerificationScreen,
@@ -19,12 +21,15 @@ import {
   BackgroundOnboardingScreen,
   ExperiencesOnboardingScreen,
   AIChatScreen,
-  HomeScreen,
   VisaExperiencesScreen,
   WelcomeScreen,
+  NewsScreen,
+  DiscussionsScreen,
 } from '../screens';
 import { colors, spacing } from '../constants/theme';
-import { FloatingChatButton, ChatModal } from '../components/chat';
+import { FloatingChatButton, ChatModal, AssistModal } from '../components/chat';
+import { AI_ASSIST_ENABLED } from '../constants/flags';
+import { ASSIST_OPEN_EVENT } from '../utils/assistLauncher';
 import { FloatingTabBar } from '../components/FloatingTabBar';
 import { useAuth } from '../contexts/AuthContext';
 import { useAIConsent } from '../contexts/AIConsentContext';
@@ -58,17 +63,25 @@ const fadeTransitionOptions: NativeStackNavigationOptions = {
   animationDuration: 250,
 };
 
-// "Community" mirrors the website's Community tab (the postings search/browse,
-// i.e. /search). The old mock forum screen navigated to fake case ids → 404.
-function CommunityStack() {
+// "Home" is now the postings search/browse experience itself (formerly the
+// separate "Community" tab, which mirrored the website's /search) — the old
+// personalized HomeScreen (greeting, previews) is gone. VisaExperiences/AIChat
+// stay registered even though nothing currently navigates to them (their only
+// entry points were on the old HomeScreen) — harmless if unreached, and still
+// resolve correctly if AI_CHAT_ENABLED is ever flipped back on.
+function HomeStack() {
   return (
     <Stack.Navigator screenOptions={screenTransitionOptions}>
-      <Stack.Screen name="CommunityMain" component={SearchScreen} />
+      <Stack.Screen name="HomeMain" component={SearchScreen} />
+      <Stack.Screen name="AdvancedSearch" component={AdvancedSearchScreen} />
+      <Stack.Screen name="VisaExperiences" component={VisaExperiencesScreen} />
+      <Stack.Screen name="AIChat" component={AIChatScreen} />
+      <Stack.Screen name="Post" component={PostScreen} />
       <Stack.Screen name="CaseDetails" component={CaseDetailsScreen} />
       <Stack.Screen name="GroupChat" component={GroupChatScreen} />
+      <Stack.Screen name="GroupAttributes" component={GroupAttributesScreen} />
       <Stack.Screen name="Author" component={AuthorScreen} />
       <Stack.Screen name="AuthorByHandle" component={AuthorByHandleScreen} />
-      <Stack.Screen name="Post" component={PostScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="Disclaimer" component={DisclaimerScreen} options={modalTransitionOptions} />
       <Stack.Screen name="BackgroundOnboarding" component={BackgroundOnboardingScreen} />
@@ -77,15 +90,31 @@ function CommunityStack() {
   );
 }
 
-function HomeStack() {
+function NewsStack() {
   return (
     <Stack.Navigator screenOptions={screenTransitionOptions}>
-      <Stack.Screen name="HomeMain" component={HomeScreen} />
-      <Stack.Screen name="VisaExperiences" component={VisaExperiencesScreen} />
-      <Stack.Screen name="AIChat" component={AIChatScreen} />
-      <Stack.Screen name="Post" component={PostScreen} />
-      <Stack.Screen name="CaseDetails" component={CaseDetailsScreen} />
+      <Stack.Screen name="NewsMain" component={NewsScreen} />
       <Stack.Screen name="GroupChat" component={GroupChatScreen} />
+      <Stack.Screen name="GroupAttributes" component={GroupAttributesScreen} />
+      <Stack.Screen name="CaseDetails" component={CaseDetailsScreen} />
+      <Stack.Screen name="Author" component={AuthorScreen} />
+      <Stack.Screen name="AuthorByHandle" component={AuthorByHandleScreen} />
+      <Stack.Screen name="Profile" component={ProfileScreen} />
+      <Stack.Screen name="Disclaimer" component={DisclaimerScreen} options={modalTransitionOptions} />
+      <Stack.Screen name="BackgroundOnboarding" component={BackgroundOnboardingScreen} />
+      <Stack.Screen name="ExperiencesOnboarding" component={ExperiencesOnboardingScreen} />
+    </Stack.Navigator>
+  );
+}
+
+function DiscussionsStack() {
+  return (
+    <Stack.Navigator screenOptions={screenTransitionOptions}>
+      <Stack.Screen name="DiscussionsMain" component={DiscussionsScreen} />
+      <Stack.Screen name="Post" component={PostScreen} />
+      <Stack.Screen name="GroupChat" component={GroupChatScreen} />
+      <Stack.Screen name="GroupAttributes" component={GroupAttributesScreen} />
+      <Stack.Screen name="CaseDetails" component={CaseDetailsScreen} />
       <Stack.Screen name="Author" component={AuthorScreen} />
       <Stack.Screen name="AuthorByHandle" component={AuthorByHandleScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
@@ -101,6 +130,7 @@ function FindStack() {
     <Stack.Navigator screenOptions={screenTransitionOptions}>
       <Stack.Screen name="FindMain" component={FindScreen} />
       <Stack.Screen name="GroupChat" component={GroupChatScreen} />
+      <Stack.Screen name="GroupAttributes" component={GroupAttributesScreen} />
       <Stack.Screen name="CaseDetails" component={CaseDetailsScreen} />
       <Stack.Screen name="Author" component={AuthorScreen} />
       <Stack.Screen name="AuthorByHandle" component={AuthorByHandleScreen} />
@@ -120,6 +150,7 @@ function ProfileStack() {
       <Stack.Screen name="ExperiencesOnboarding" component={ExperiencesOnboardingScreen} />
       <Stack.Screen name="CaseDetails" component={CaseDetailsScreen} />
       <Stack.Screen name="GroupChat" component={GroupChatScreen} />
+      <Stack.Screen name="GroupAttributes" component={GroupAttributesScreen} />
       <Stack.Screen name="Author" component={AuthorScreen} />
       <Stack.Screen name="AuthorByHandle" component={AuthorByHandleScreen} />
       <Stack.Screen name="Disclaimer" component={DisclaimerScreen} options={modalTransitionOptions} />
@@ -156,6 +187,14 @@ const AI_CHAT_ENABLED = false;
 
 function TabNavigator() {
   const [isChatOpen, setIsChatOpen] = useState(false);
+  // AI Assist modal (flag-gated). Opened by the global floating button OR by any
+  // screen emitting ASSIST_OPEN_EVENT (e.g. the Home search-row "Ask AI/Post").
+  const [assistOpen, setAssistOpen] = useState(false);
+  useEffect(() => {
+    if (!AI_ASSIST_ENABLED) return;
+    const sub = DeviceEventEmitter.addListener(ASSIST_OPEN_EVENT, () => setAssistOpen(true));
+    return () => sub.remove();
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -180,10 +219,17 @@ function TabNavigator() {
           }}
         />
         <Tab.Screen
-          name="Community"
-          component={CommunityStack}
+          name="News"
+          component={NewsStack}
           options={{
-            tabBarLabel: 'Community',
+            tabBarLabel: 'News',
+          }}
+        />
+        <Tab.Screen
+          name="Discussions"
+          component={DiscussionsStack}
+          options={{
+            tabBarLabel: 'Discussions',
           }}
         />
         <Tab.Screen
@@ -195,18 +241,22 @@ function TabNavigator() {
         />
       </Tab.Navigator>
 
-      {/* AI Chat Floating Button and Modal - disabled to match the website
-          (AI_MODE_ENABLED = false there). Re-enable via AI_CHAT_ENABLED above. */}
+      {/* Legacy /api/ask chat — disabled (AI_CHAT_ENABLED=false); superseded by
+          the AI Assist modal below. */}
       {AI_CHAT_ENABLED && (
         <>
-          <FloatingChatButton
-            onPress={() => setIsChatOpen(true)}
-            isOpen={isChatOpen}
-          />
-          <ChatModal
-            visible={isChatOpen}
-            onClose={() => setIsChatOpen(false)}
-          />
+          <FloatingChatButton onPress={() => setIsChatOpen(true)} isOpen={isChatOpen} />
+          <ChatModal visible={isChatOpen} onClose={() => setIsChatOpen(false)} />
+        </>
+      )}
+
+      {/* AI Assist — the /api/assist conversational assistant (website parity),
+          gated by EXPO_PUBLIC_AI_ASSIST_ENABLED. Global floating launcher + the
+          full-screen chat modal, also openable from the Home search row. */}
+      {AI_ASSIST_ENABLED && (
+        <>
+          <FloatingChatButton onPress={() => setAssistOpen(true)} isOpen={assistOpen} />
+          <AssistModal visible={assistOpen} onClose={() => setAssistOpen(false)} />
         </>
       )}
     </View>

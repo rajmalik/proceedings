@@ -37,7 +37,7 @@ export default function AuthorByHandlePage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
       <Link
-        href="/search"
+        href="/"
         className="inline-flex items-center gap-1 text-label-md text-on-surface-variant hover:text-primary mb-4 transition-colors"
       >
         <span className="material-symbols-outlined text-[20px]">arrow_back</span>

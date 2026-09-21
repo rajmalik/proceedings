@@ -54,13 +54,18 @@ Multi-label classification — a single chunk can have more than one label.
 
 ---
 
+> **Retired.** This workflow belongs to the archived Firecrawl → self-managed
+> Vector Search prototype (now under `legacy/`). It is kept for historical
+> reference only; the live system grounds on the managed Vertex AI Search
+> datastore — see [[Proceedings — Project Overview]].
+
 ## Workflow
 
-1. [[crawler.py]] populates the GCS bucket with `.md` files
+1. `legacy/crawler.py` populates the GCS bucket with `.md` files
 2. Sync Source Storage in Label Studio to import tasks
-3. Label tasks manually (or use [[auto_label.py]])
+3. Label tasks manually (or use `legacy/auto_label.py`)
 4. Sync Target Storage to export annotations to `gs://bucket/labeled/`
-5. [[index.py]] reads from `/labeled/` to build the vector index
+5. `legacy/` indexing scripts read from `/labeled/` to build the vector index
 
 ---
 

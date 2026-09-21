@@ -23,7 +23,6 @@ import { ChatMessage } from '../components/chat/ChatMessage';
 import { ChatInput } from '../components/chat/ChatInput';
 import { askQuestion } from '../services/apiService';
 import { AIConsentError } from '../services/aiConsent';
-import { useAuth } from '../contexts/AuthContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -48,7 +47,7 @@ const SUGGESTION_CARDS = [
   {
     id: 'visa-exp',
     icon: 'document-text-outline' as const,
-    title: 'Visa experiences',
+    title: 'USA visits/migration journey',
     subtitle: 'Find similar journeys',
   },
   {
@@ -72,14 +71,10 @@ const SUGGESTION_CARDS = [
 ];
 
 export function AIChatScreen({ navigation }: any) {
-  const { user } = useAuth();
   const [chatItems, setChatItems] = useState<ChatItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasStartedChat, setHasStartedChat] = useState(false);
   const flatListRef = useRef<FlatList>(null);
-
-  // Get first name from displayName or email
-  const firstName = user?.displayName?.split(' ')[0] || user?.email?.split('@')[0] || '';
 
   // Hide tab bar when this screen is active
   useLayoutEffect(() => {
@@ -236,9 +231,7 @@ export function AIChatScreen({ navigation }: any) {
 
       {/* Greeting */}
       <Animated.View entering={FadeInUp.delay(100).duration(400)} style={styles.greetingContainer}>
-        <Text style={styles.greetingMuted}>
-          Hello{firstName ? `, ${firstName}` : ''}
-        </Text>
+        <Text style={styles.greetingMuted}>Hello</Text>
         <Text style={styles.greetingBold}>How can I assist you?</Text>
       </Animated.View>
 
@@ -288,7 +281,7 @@ export function AIChatScreen({ navigation }: any) {
             <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
           </GlassButton>
 
-          <Text style={styles.headerTitle}>MeridianAI</Text>
+          <Text style={styles.headerTitle}>Meridian AI</Text>
 
           {/* Spacer to keep title centered */}
           <View style={styles.headerSpacer} />
@@ -342,9 +335,9 @@ const styles = StyleSheet.create({
     height: 60,
   },
   headerTitle: {
-    fontFamily: 'Georgia',
+    // Brand serif wordmark (Georgia was unloaded → system fallback).
+    fontFamily: 'Lora_600SemiBold',
     fontSize: 18,
-    fontWeight: '600',
     color: colors.onSurface,
   },
   headerSpacer: {
@@ -419,8 +412,9 @@ const styles = StyleSheet.create({
   suggestionIconWrap: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(21, 72, 126, 0.12)',
+    borderRadius: borderRadius.full,
+    // Was a hardcoded blue tint on a red-brand app (UI_AUDIT §1) → brand tonal surface.
+    backgroundColor: colors.primaryContainer,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xs,

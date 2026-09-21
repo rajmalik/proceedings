@@ -78,20 +78,20 @@ export default function SupportPage() {
               </a>
             </div>
 
-            {/* Community */}
+            {/* Browse postings */}
             <div className="bg-surface-container-low rounded-2xl p-6 border border-outline-variant">
               <div className="w-12 h-12 bg-primary-container rounded-xl flex items-center justify-center mb-4">
-                <span className="material-symbols-outlined text-primary text-2xl">forum</span>
+                <span className="material-symbols-outlined text-primary text-2xl">search</span>
               </div>
-              <h2 className="text-headline-md font-semibold text-on-surface mb-2">Community</h2>
+              <h2 className="text-headline-md font-semibold text-on-surface mb-2">Browse Postings</h2>
               <p className="text-body-md text-on-surface-variant mb-4">
-                Connect with other users, ask questions, and share your experiences.
+                Search real USA visits/migration journey shared by people who&apos;ve been through the process.
               </p>
               <Link
-                href="/community"
+                href="/"
                 className="inline-flex items-center gap-2 text-primary font-medium hover:underline"
               >
-                Join the community
+                Search postings
                 <span className="material-symbols-outlined text-lg">arrow_forward</span>
               </Link>
             </div>

@@ -91,6 +91,16 @@ ONLY tags from `tags-cleaned/1.1-non-immigration-visas.csv` and
   EB-1, EB-1A, EB-1B, EB-1C, EB-2, EB-3, EB-4, EB-5, IR-1, IR-2, IR-5,
   F1-FAMILY, F2A-FAMILY, F2B-FAMILY, F3-FAMILY, F4-FAMILY, DV, SIV, SB-1
 
+`family-immigration` / `employment-immigration` (1.2) are LAST-RESORT
+codes for a posting that's clearly family- or employment-based (mentions
+I-130, an unnamed relative, an employer petition, ...) but gives no way to
+determine a specific code. Prefer a specific code whenever the text
+supports one — never use these as a shortcut. `posting.py`'s
+`_apply_visa_backfill()` also deterministically backfills one of these
+when the model itself leaves both fields empty but a
+`family-based-immigration`/`employment-based-immigration` tag is present
+— see `docs/tagging/VISA-VOCAB-GAPS-AND-CURATION-BLOCKERS.md`.
+
 ## consulates
 ONLY tags from `tags-cleaned/1.4-consulates.csv`. Country codes (ISO-2) or
 city codes (3-letter). Examples: IN, DEL, MAA, BOM, MX, MEX, CA, YYZ, ID.

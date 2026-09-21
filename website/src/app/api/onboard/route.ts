@@ -8,9 +8,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const uid = request.headers.get('x-user-id') || ''
+    const tok = request.headers.get('authorization') || ''
     const res = await fetch(`${PYTHON_API_URL}/api/onboard`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(uid ? { 'X-User-Id': uid } : {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(uid ? { 'X-User-Id': uid } : {}),
+        ...(tok ? { Authorization: tok } : {}),
+      },
       body: JSON.stringify({ messages: body.messages || [], draft: body.draft || {}, stage: body.stage || 'basics' }),
     })
     const data = await res.json()

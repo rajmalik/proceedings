@@ -24,6 +24,8 @@ export interface AnimatedPressableProps {
   disabled?: boolean;
   /** Test ID for testing */
   testID?: string;
+  /** Accessibility label announced by screen readers / queried in tests */
+  accessibilityLabel?: string;
 }
 
 /**
@@ -44,6 +46,7 @@ export function AnimatedPressable({
   haptics = 'light',
   disabled = false,
   testID,
+  accessibilityLabel,
 }: AnimatedPressableProps) {
   const { animatedStyle, onPressIn, onPressOut } = useAnimatedPressable({
     scaleTo,
@@ -100,6 +103,8 @@ export function AnimatedPressable({
       <Animated.View
         style={[style, animatedStyle, disabled && { opacity: 0.5 }]}
         testID={testID}
+        accessible={!!accessibilityLabel}
+        accessibilityLabel={accessibilityLabel}
       >
         {children}
       </Animated.View>

@@ -1,13 +1,18 @@
 # Deployment
 
+**Surfaces:** FastAPI API (Cloud Run) · Next.js website (Vercel) · React Native app (Expo)
+
 ---
 
 ## Architecture
 
 ```
-User → Vercel (Next.js) → Cloud Run (FastAPI) → Vertex AI Vector Search + Gemini
-                                      ↓
-                                  Firestore (Q&A storage)
+Mobile App (Expo) ─┐
+                   ├─► Cloud Run (FastAPI, backend/) ─► Vertex AI Search (Discovery Engine)
+Website (Vercel) ──┘                │                    datastore `imm-postings-datastore`
+                                    ├─► Gemini (Vertex AI) — tagging & answers
+                                    ├─► GCS sidecars → documents.import
+                                    └─► Firestore (users, qa_pairs, replies, votes, groups, …)
 ```
 
 ---
@@ -15,60 +20,57 @@ User → Vercel (Next.js) → Cloud Run (FastAPI) → Vertex AI Vector Search + 
 ## API — Cloud Run
 
 | Setting | Value |
-|---------|-------|
-| Service | `proceedings-api` |
-| URL | `https://proceedings-api-971592620882.us-central1.run.app` |
+|---|---|
+| Service | `immiguide-api` |
 | Region | `us-central1` |
-| Memory | 1Gi |
-| Min instances | 1 (avoids cold starts) |
-| Timeout | 60s |
+| Source | `backend/` (Dockerfile at `backend/Dockerfile`) |
 
-**Env vars set on Cloud Run:**
-- `GCP_PROJECT_ID=proceedings-490601`
-- `GCP_REGION=us-central1`
-- `GCP_BUCKET_NAME=law-firm-knowledge-base`
-- `VERTEX_AI_INDEX_ID=8958040089863127040`
-- `VERTEX_AI_INDEX_ENDPOINT_ID=245914571645124608`
-
-**Redeploy:**
+**Deploy (manual):**
 ```bash
-gcloud run deploy proceedings-api --source . --project proceedings-490601 --region us-central1 --quiet
+gcloud run deploy immiguide-api --source backend --region us-central1
 ```
+
+**Key env vars** (see root `CLAUDE.md` for the full list):
+- `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_BUCKET_NAME`
+- `GCP_VERTEX_SEARCH_APP_ID`, `GCP_VERTEX_DATASTORE_ID`, `GCP_VERTEX_DATASTORE_LOCATION` — the managed Vertex AI Search grounding sink used by [[api.py]] / [[search_client.py]]
+- `APP_SOURCE_SYSTEM`, `APP_BASE_URL` — provenance identity for first-party postings (default `meridianjourney` / `https://meridianjourney.ai`)
+
+> The retired self-managed `VERTEX_AI_INDEX_*` vars were decommissioned along with the `legacy/` prototype.
 
 ---
 
 ## Website — Vercel
 
 | Setting | Value |
-|---------|-------|
-| Repo | `krishmalikk/proceedings` |
-| Root directory | `website` |
+|---|---|
+| Root directory | `website/` |
 | Framework | Next.js 14 |
+| Deploy | Auto on push to `main` |
 
-**Env var on Vercel:**
-- `PYTHON_API_URL=https://proceedings-api-971592620882.us-central1.run.app`
-
-Deploys automatically on push to `main`.
+Set the backend URL via the website's `PYTHON_API_URL` / API-base env var so its API routes proxy to the Cloud Run service. See [[Website]].
 
 ---
 
-## Dockerfile
+## Mobile — Expo
 
-Located at `/Dockerfile`. Copies `api.py` and `query.py`, installs Python dependencies, runs uvicorn on port 8080.
+React Native + Expo app under `mobile/`; talks to the same Cloud Run API via `mobile/src/services/apiService.ts`. Config in `mobile/app.config.js`. See [[Mobile App]].
+
+---
+
+## CI/CD
+
+GitHub Actions runs a no-credentials **test gate** on every push/PR (`.github/workflows/ci.yml`); Cloud Run deploys are **manual-approval only** (`.github/workflows/deploy.yml`). Release tags are component-scoped SemVer (`backend-vX.Y.Z` / `website-vX.Y.Z` / `mobile-vX.Y.Z`) and are cut only when explicitly requested. See [[Docs Map]] → `docs/CI-CD.md`, `docs/RELEASE-TAGGING.md`.
 
 ---
 
 ## Infrastructure Summary
 
 | Service | Provider | Purpose |
-|---------|----------|---------|
+|---|---|---|
+| API server | Cloud Run (`immiguide-api`) | FastAPI backend |
+| Retrieval / grounding | Vertex AI Search (Discovery Engine) | Grounded answers over `imm-postings-datastore` |
+| LLM | Gemini (Vertex AI) | Tagging + answer generation |
+| Doc storage | GCS | Posting sidecars → `documents.import` |
+| App database | Firestore | Profiles, Q&A, votes, replies, groups, moderation |
 | Website hosting | Vercel | Next.js frontend |
-| API server | Cloud Run | FastAPI backend |
-| Vector database | Vertex AI Vector Search | Chunk retrieval |
-| LLM | Gemini 2.5 Flash (Vertex AI) | Answer generation |
-| Labeling agent | Vertex AI Agent Engine | 20 immigration category classification |
-| Embeddings | Vertex AI text-embedding-005 | Query + document embeddings |
-| Object storage | GCS (`law-firm-knowledge-base`) | Crawled pages, labeled data, chunk mapping |
-| Q&A database | Firestore | Question/answer pairs + feedback |
-| Web crawling | Firecrawl API | JS rendering for law firm sites |
-| Labeling (manual) | Label Studio (GCP VM) | Optional manual review |
+| Mobile | Expo | React Native app |

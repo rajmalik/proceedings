@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { getActiveUser, userHeaders } from '@/lib/activeUser'
+import { useAuth } from '@/contexts/AuthContext'
+import { getActiveUser, userHeaders, DEMO_PICKER_ENABLED } from '@/lib/activeUser'
 import ReplyItem, { ReplyCardData } from './ReplyItem'
 
 type Tally = { up: number; down: number; score: number; your_vote: number }
@@ -24,9 +25,19 @@ export default function Replies({
   const [text, setText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [hasUser, setHasUser] = useState(false)
 
-  useEffect(() => { setHasUser(!!getActiveUser()) }, [])
+  // Bug fixed: this used to be a one-shot getActiveUser() check on mount,
+  // which races Firebase's async session restore (onAuthStateChanged fires
+  // AFTER mount) — a real signed-in production user could see "Select a
+  // user" forever, since the check never re-ran once auth actually
+  // resolved. `useAuth()`'s `user` is reactive (updates when the session
+  // restores), so re-deriving `hasUser` from it fixes the race. The
+  // dev-only demo picker (`getActiveUser()`'s localStorage fallback, OFF in
+  // production — see DEMO_PICKER_ENABLED) doesn't have this problem since
+  // it's synchronous, but is included here too for dev/test parity.
+  const { user: authUser } = useAuth()
+  const [hasUser, setHasUser] = useState(false)
+  useEffect(() => { setHasUser(!!authUser || !!getActiveUser()) }, [authUser])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -120,7 +131,17 @@ export default function Replies({
         </div>
       ) : (
         <div className="card text-body-md text-on-surface-variant">
-          <Link href="/onboarding" className="text-secondary hover:underline">Select a user</Link> to reply and vote.
+          {/* "Select a user" was dev-picker jargon that leaked into
+              production copy — a real visitor has no such picker (it's
+              OFF in production) and no "user" to select; replying only
+              ever requires being signed in. Demo picker link kept as a
+              dev/test-only fallback, matching find/page.tsx's pattern. */}
+          <Link href="/login" className="text-secondary hover:underline">Sign in</Link> to reply and vote.
+          {DEMO_PICKER_ENABLED && (
+            <>
+              {' '}(dev: <Link href="/onboarding" className="text-secondary hover:underline">pick a demo user</Link>)
+            </>
+          )}
         </div>
       )}
 

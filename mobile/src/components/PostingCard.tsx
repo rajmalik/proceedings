@@ -4,7 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Card } from './Card';
 import { AnimatedPressable } from './AnimatedPressable';
 import { ContentActionsMenu } from './ContentActionsMenu';
+import { AppText } from './AppText';
 import { colors, spacing, borderRadius, typography } from '../constants/theme';
+import { getOutcomeBadgeStyle } from '../utils/outcome';
 
 export type PostingCardData = {
   case_id: string;
@@ -46,17 +48,6 @@ function timeAgo(iso: string): string {
   return new Date(t).toLocaleDateString();
 }
 
-function getOutcomeBadgeStyle(outcome: string) {
-  const o = outcome.toLowerCase();
-  if (o === 'approved' || o === 'issued') {
-    return { backgroundColor: colors.successContainer, color: colors.onSuccessContainer };
-  }
-  if (o === 'denied' || o === 'refused' || o === 'rejected') {
-    return { backgroundColor: colors.errorContainer, color: colors.onErrorContainer };
-  }
-  return { backgroundColor: colors.surfaceContainerHigh, color: colors.onSurfaceVariant };
-}
-
 export function PostingCard({ posting, onPress, authorId, authorHandle, onActioned }: PostingCardProps) {
   const outcomeStyle = posting.outcome ? getOutcomeBadgeStyle(posting.outcome) : null;
 
@@ -77,6 +68,21 @@ export function PostingCard({ posting, onPress, authorId, authorHandle, onAction
 
         {/* Badges row */}
         <View style={[styles.badgesRow, onActioned && styles.badgesRowWithOverflow]}>
+          {posting.tags.includes('news-update') && (
+            <View style={[styles.badge, styles.accentBadge]}>
+              <AppText variant="overline" color="onAccentContainer">News</AppText>
+            </View>
+          )}
+          {posting.tags.includes('discussion') && (
+            <View style={[styles.badge, styles.accentBadge]}>
+              <AppText variant="overline" color="onAccentContainer">Discussion</AppText>
+            </View>
+          )}
+          {posting.tags.includes('blog') && (
+            <View style={[styles.badge, styles.accentBadge]}>
+              <AppText variant="overline" color="onAccentContainer">Blog</AppText>
+            </View>
+          )}
           {posting.outcome && (
             <View style={[styles.badge, { backgroundColor: outcomeStyle?.backgroundColor }]}>
               <Text style={[styles.badgeText, { color: outcomeStyle?.color }]}>
@@ -89,6 +95,16 @@ export function PostingCard({ posting, onPress, authorId, authorHandle, onAction
               <Text style={[styles.badgeText, styles.primaryBadgeText]}>{v}</Text>
             </View>
           ))}
+          {/* Fallback: if there's no visa/status to show, surface the first
+              general tag instead — every card should carry at least one
+              relevant tag badge (features/ui-changes-1/changes-2-.md item 2). */}
+          {posting.visa.length === 0 && posting.tags.filter((t) => !['news-update', 'discussion', 'blog'].includes(t))[0] && (
+            <View style={[styles.badge, styles.primaryBadge]}>
+              <AppText variant="overline" color="onPrimaryContainer">
+                {posting.tags.filter((t) => !['news-update', 'discussion', 'blog'].includes(t))[0]}
+              </AppText>
+            </View>
+          )}
           {posting.consulates.slice(0, 2).map((c) => (
             <View key={c} style={[styles.badge, styles.locationBadge]}>
               <Ionicons name="location-outline" size={12} color={colors.onSurfaceVariant} />
@@ -161,6 +177,9 @@ const styles = StyleSheet.create({
   },
   primaryBadgeText: {
     color: colors.onPrimaryContainer,
+  },
+  accentBadge: {
+    backgroundColor: colors.accentContainer,
   },
   locationBadge: {
     backgroundColor: colors.surfaceContainerHigh,

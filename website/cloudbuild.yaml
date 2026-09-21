@@ -1,0 +1,36 @@
+# Reproducible build of the website image WITH the AI Assist feature flag baked
+# in. The flag is a build-time Next.js var — NEXT_PUBLIC_* are inlined into the
+# client bundle at BUILD time (see website/Dockerfile), so it MUST be passed as
+# a Docker --build-arg. A plain `gcloud run deploy immiguide-web --source
+# website` cannot pass build-args and would ship the flag OFF (the Dockerfile
+# ARG defaults to 0). Use this config instead whenever the flag state matters.
+#
+# Build (flag ON by default):
+#   gcloud builds submit website --config website/cloudbuild.yaml
+# Build DARK (flag OFF):
+#   gcloud builds submit website --config website/cloudbuild.yaml --substitutions=_AI_ASSIST=0
+#
+# Then deploy the freshly built image and route traffic (this service PINS
+# traffic, so a new revision does not serve until traffic is moved):
+#   gcloud run deploy immiguide-web --image <_IMAGE below> --region us-central1
+#   gcloud run services update-traffic immiguide-web --region us-central1 --to-latest
+
+substitutions:
+  _AI_ASSIST: '1'   # NEXT_PUBLIC_AI_ASSIST_ENABLED — 1 shows the chatbot, 0 hides it
+  _IMAGE: us-central1-docker.pkg.dev/proceedings-490601/cloud-run-source-deploy/immiguide-web:aiassist-live
+
+options:
+  machineType: E2_HIGHCPU_8   # the Next.js build is CPU-bound; the bigger machine keeps it ~2-3 min
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - NEXT_PUBLIC_AI_ASSIST_ENABLED=${_AI_ASSIST}
+      - -t
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}

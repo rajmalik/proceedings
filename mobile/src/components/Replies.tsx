@@ -1,19 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, StyleSheet, TextInput, TouchableOpacity, FlatList, Alert } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
+import { AppText } from './AppText';
 import { ReplyItem, ReplyCardData } from './ReplyItem';
-import { colors, spacing, borderRadius } from '../constants/theme';
+import { Skeleton } from './Skeleton';
+import { colors, spacing, borderRadius, typography } from '../constants/theme';
 import { getReplies, postReply, deleteReply, getActiveUserId } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
+import { flattenReplyTree, visibleRows, FlatReplyRow } from '../utils/replyTree';
 
 type Tally = { up: number; down: number; score: number; your_vote: number };
 
@@ -29,6 +25,11 @@ export function Replies({ postingId, onPostingTally }: RepliesProps) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // Nesting UI state (local only, not persisted — reopening starts expanded).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySubmitting, setReplySubmitting] = useState(false);
   const hasUser = !!getActiveUserId();
   const { isBlocked } = useAuth();
 
@@ -53,10 +54,16 @@ export function Replies({ postingId, onPostingTally }: RepliesProps) {
     loadReplies();
   }, [loadReplies]);
 
+  // Flatten the threaded hierarchy into a single display list for the FlatList,
+  // then drop rows hidden under a collapsed ancestor.
+  const rows = useMemo(() => flattenReplyTree(replies, sort), [replies, sort]);
+  const shown = useMemo(() => visibleRows(rows, collapsed), [rows, collapsed]);
+
   const handleSubmit = async () => {
     const body = text.trim();
     if (!body || submitting) return;
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setSubmitting(true);
     setError('');
     try {
@@ -69,6 +76,55 @@ export function Replies({ postingId, onPostingTally }: RepliesProps) {
       setSubmitting(false);
     }
   };
+
+  const handleToggleCollapse = useCallback((id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleStartReply = useCallback((id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setReplyText('');
+    setReplyingTo(id);
+  }, []);
+
+  const handleCancelReply = useCallback(() => {
+    setReplyingTo(null);
+    setReplyText('');
+  }, []);
+
+  const handleSubmitReply = useCallback(
+    async (parentReplyId: string) => {
+      const body = replyText.trim();
+      if (!body || replySubmitting) return;
+
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      setReplySubmitting(true);
+      try {
+        const newReply = await postReply(postingId, body, parentReplyId);
+        setReplies((prev) => [...prev, newReply]);
+        // Make sure the new child is visible: expand its parent, close composer.
+        setCollapsed((prev) => {
+          if (!prev.has(parentReplyId)) return prev;
+          const next = new Set(prev);
+          next.delete(parentReplyId);
+          return next;
+        });
+        setReplyText('');
+        setReplyingTo(null);
+      } catch (e) {
+        Alert.alert('Reply failed', e instanceof Error ? e.message : 'Could not post reply');
+      } finally {
+        setReplySubmitting(false);
+      }
+    },
+    [postingId, replyText, replySubmitting],
+  );
 
   const handleDelete = async (id: string) => {
     const prevReplies = replies;
@@ -85,8 +141,27 @@ export function Replies({ postingId, onPostingTally }: RepliesProps) {
     setReplies((cur) => cur.filter((r) => r.id !== id));
   };
 
-  const renderReply = ({ item }: { item: ReplyCardData }) => (
-    <ReplyItem reply={item} onDelete={handleDelete} onHide={handleHide} />
+  const renderReply = ({ item, index }: { item: FlatReplyRow; index: number }) => (
+    <Animated.View entering={index < 6 ? FadeInDown.springify().delay(index * 40) : undefined}>
+      <ReplyItem
+        reply={item.reply}
+        depth={item.depth}
+        descendantCount={item.descendantCount}
+        hasChildren={item.hasChildren}
+        collapsed={collapsed.has(item.reply.id)}
+        onToggleCollapse={handleToggleCollapse}
+        canReply={hasUser}
+        isReplying={replyingTo === item.reply.id}
+        replyText={replyText}
+        replySubmitting={replySubmitting}
+        onStartReply={handleStartReply}
+        onChangeReplyText={setReplyText}
+        onSubmitReply={handleSubmitReply}
+        onCancelReply={handleCancelReply}
+        onDelete={handleDelete}
+        onHide={handleHide}
+      />
+    </Animated.View>
   );
 
   return (
@@ -95,22 +170,22 @@ export function Replies({ postingId, onPostingTally }: RepliesProps) {
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Ionicons name="chatbubbles-outline" size={20} color={colors.secondary} />
-          <Text style={styles.title}>
-            Replies <Text style={styles.count}>({replies.length})</Text>
-          </Text>
+          <AppText variant="headlineMd">
+            Replies <AppText variant="headlineMd" color="onSurfaceVariant">({replies.length})</AppText>
+          </AppText>
         </View>
         <View style={styles.sortButtons}>
           <TouchableOpacity
             onPress={() => setSort('top')}
             style={[styles.sortButton, sort === 'top' && styles.sortButtonActive]}
           >
-            <Text style={[styles.sortText, sort === 'top' && styles.sortTextActive]}>Top</Text>
+            <AppText variant="caption" color={sort === 'top' ? 'onPrimaryContainer' : 'onSurfaceVariant'}>Top</AppText>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setSort('new')}
             style={[styles.sortButton, sort === 'new' && styles.sortButtonActive]}
           >
-            <Text style={[styles.sortText, sort === 'new' && styles.sortTextActive]}>New</Text>
+            <AppText variant="caption" color={sort === 'new' ? 'onPrimaryContainer' : 'onSurfaceVariant'}>New</AppText>
           </TouchableOpacity>
         </View>
       </View>
@@ -128,39 +203,41 @@ export function Replies({ postingId, onPostingTally }: RepliesProps) {
             style={styles.input}
           />
           <View style={styles.composerFooter}>
-            <Text style={styles.charCount}>{text.length}/5000</Text>
+            <AppText variant="caption" color="onSurfaceVariant">{text.length}/5000</AppText>
             <TouchableOpacity
               onPress={handleSubmit}
               disabled={!text.trim() || submitting}
               style={[styles.submitButton, (!text.trim() || submitting) && styles.submitDisabled]}
             >
-              <Text style={styles.submitText}>
-                {submitting ? 'Posting…' : 'Post reply'}
-              </Text>
+              <AppText variant="caption" color="onPrimary">{submitting ? 'Posting…' : 'Post reply'}</AppText>
             </TouchableOpacity>
           </View>
         </View>
       ) : (
         <View style={styles.noUserCard}>
-          <Text style={styles.noUserText}>
+          <AppText variant="bodySm" color="onSurfaceVariant">
             Select a user in onboarding to reply and vote.
-          </Text>
+          </AppText>
         </View>
       )}
 
       {/* Error */}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <AppText variant="bodySm" color="error" style={styles.error}>{error}</AppText> : null}
 
       {/* Replies list */}
       {loading ? (
-        <ActivityIndicator size="small" color={colors.primary} style={styles.loader} />
-      ) : replies.length === 0 ? (
-        <Text style={styles.emptyText}>No replies yet - be the first to share.</Text>
+        <View style={styles.loader}>
+          <Skeleton.Card count={2} />
+        </View>
+      ) : shown.length === 0 ? (
+        <AppText variant="bodySm" color="onSurfaceVariant" style={styles.emptyText}>
+          No replies yet - be the first to share.
+        </AppText>
       ) : (
         <FlatList
-          data={replies}
+          data={shown}
           renderItem={renderReply}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.reply.id}
           contentContainerStyle={styles.list}
           scrollEnabled={false}
         />
@@ -184,15 +261,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.onSurface,
-  },
-  count: {
-    color: colors.onSurfaceVariant,
-    fontWeight: '400',
-  },
   sortButtons: {
     flexDirection: 'row',
     gap: 4,
@@ -206,14 +274,6 @@ const styles = StyleSheet.create({
   sortButtonActive: {
     backgroundColor: colors.primaryContainer,
   },
-  sortText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.onSurfaceVariant,
-  },
-  sortTextActive: {
-    color: colors.onPrimaryContainer,
-  },
   composer: {
     backgroundColor: colors.surfaceContainerLowest,
     borderWidth: 1,
@@ -223,7 +283,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   input: {
-    fontSize: 14,
+    ...typography.bodySm,
     color: colors.onSurface,
     minHeight: 80,
     textAlignVertical: 'top',
@@ -234,10 +294,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: spacing.base,
   },
-  charCount: {
-    fontSize: 12,
-    color: colors.onSurfaceVariant,
-  },
   submitButton: {
     backgroundColor: colors.primary,
     paddingHorizontal: 16,
@@ -247,11 +303,6 @@ const styles = StyleSheet.create({
   submitDisabled: {
     opacity: 0.5,
   },
-  submitText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.onPrimary,
-  },
   noUserCard: {
     backgroundColor: colors.surfaceContainerLowest,
     borderWidth: 1,
@@ -260,21 +311,13 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.sm,
   },
-  noUserText: {
-    fontSize: 14,
-    color: colors.onSurfaceVariant,
-  },
   error: {
-    fontSize: 14,
-    color: colors.error,
     marginBottom: spacing.sm,
   },
   loader: {
     marginVertical: spacing.md,
   },
   emptyText: {
-    fontSize: 14,
-    color: colors.onSurfaceVariant,
     marginTop: spacing.sm,
   },
   list: {

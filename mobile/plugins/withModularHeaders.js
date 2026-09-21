@@ -2,9 +2,17 @@ const { withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
+const SCOPED_MODULAR_HEADER_PODS = ['GoogleUtilities', 'RecaptchaInterop', 'AppCheckCore'];
+
 /**
- * Config plugin to add use_modular_headers! to the Podfile
- * This fixes the Swift pod module dependency issue with GoogleUtilities and RecaptchaInterop
+ * Config plugin to fix the Swift pod module dependency issue with
+ * GoogleUtilities/RecaptchaInterop/AppCheckCore (transitive deps of Google
+ * Sign-In) needing modular headers to build as static libs.
+ *
+ * Scoped `pod '...', :modular_headers => true` per pod, NOT a global
+ * `use_modular_headers!` — the global form double-modularizes the Expo pod
+ * and produces a Swift "ambiguous implicit access level for import of
+ * 'Expo'" build error.
  */
 const withModularHeaders = (config) => {
   return withDangerousMod(config, [
@@ -15,19 +23,17 @@ const withModularHeaders = (config) => {
       if (fs.existsSync(podfilePath)) {
         let podfileContent = fs.readFileSync(podfilePath, 'utf8');
 
-        // Check if use_modular_headers! is already present
-        if (!podfileContent.includes('use_modular_headers!')) {
-          // Add use_modular_headers! after the first line of the target block
-          // This ensures it's applied globally
-          podfileContent = podfileContent.replace(
-            /^(require.*\n)/m,
-            `$1\nuse_modular_headers!\n`
-          );
+        const podLines = SCOPED_MODULAR_HEADER_PODS
+          .filter((name) => !podfileContent.includes(`pod '${name}', :modular_headers => true`))
+          .map((name) => `  pod '${name}', :modular_headers => true\n`)
+          .join('');
 
-          // If that didn't work, try adding it at the top
-          if (!podfileContent.includes('use_modular_headers!')) {
-            podfileContent = `use_modular_headers!\n\n${podfileContent}`;
-          }
+        if (podLines) {
+          // Insert right after the target block opens, before use_expo_modules!
+          podfileContent = podfileContent.replace(
+            /^(target ['"][^'"]+['"] do\n)/m,
+            `$1${podLines}`
+          );
 
           fs.writeFileSync(podfilePath, podfileContent);
         }

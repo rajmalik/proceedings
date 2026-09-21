@@ -12,9 +12,11 @@ function userHeader(request: NextRequest): Record<string, string> {
 // POST /api/groups/{id}/join — join an existing group directly.
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const body = await request.json().catch(() => ({}))
     const res = await fetch(`${PYTHON_API_URL}/api/groups/${encodeURIComponent(params.id)}/join`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...userHeader(request) },
+      body: JSON.stringify({ values: body.values || {}, notes: body.notes || '' }),
     })
     const data = await res.json()
     if (!res.ok) return NextResponse.json({ detail: data.detail || 'Could not join group' }, { status: res.status })

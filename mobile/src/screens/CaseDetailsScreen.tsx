@@ -9,7 +9,7 @@ import {
   Linking,
 } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, Markdown, AnimatedPressable } from '../components';
 import { AuthorCard } from '../components/AuthorCard';
@@ -20,6 +20,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { Skeleton } from '../components/Skeleton';
 import { ErrorState } from '../components/ErrorState';
 import { colors, spacing, borderRadius, typography } from '../constants/theme';
+import { getOutcomeBadgeStyle as outcomeBadgeStyle } from '../utils/outcome';
 import { getPosting, PostingData } from '../services/apiService';
 
 type Tally = { up: number; down: number; score: number; your_vote: number };
@@ -28,15 +29,13 @@ const ZERO_TALLY: Tally = { up: 0, down: 0, score: 0, your_vote: 0 };
 // Flip on when the verified-attorney guidance feature actually ships.
 const ATTORNEY_GUIDANCE_TEASER = false;
 
-function outcomeBadgeStyle(outcome: string) {
-  const o = outcome.toLowerCase();
-  if (o === 'approved' || o === 'issued') {
-    return { backgroundColor: colors.secondaryContainer, color: colors.onSecondaryContainer };
-  }
-  return { backgroundColor: colors.surfaceContainerHigh, color: colors.onSurfaceVariant };
-}
+// The floating tab bar (FloatingTabBar) is absolutely positioned ~70pt tall
+// above the home indicator; scroll content must clear it so the reply composer
+// and the last replies stay reachable.
+const TAB_BAR_CLEARANCE = 96;
 
 export function CaseDetailsScreen({ navigation, route }: any) {
+  const insets = useSafeAreaInsets();
   const caseId: string = route?.params?.caseId || '';
   const [data, setData] = useState<PostingData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,7 +93,12 @@ export function CaseDetailsScreen({ navigation, route }: any) {
       {!!error && !loading && <ErrorState body={error} onRetry={load} />}
 
       {data && !loading && (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Vote rail + title block (website layout) */}
           <View style={styles.titleRow}>
             <VoteControl
@@ -128,12 +132,9 @@ export function CaseDetailsScreen({ navigation, route }: any) {
             </View>
           </View>
 
-          {/* Full posting body */}
+          {/* Full posting body — no section heading (website parity): the
+              posting's own title above already introduces it. */}
           <Card style={styles.bodyCard}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="chatbubbles-outline" size={18} color={colors.secondary} />
-              <Text style={styles.cardTitle}>Full Experience</Text>
-            </View>
             {data.body ? (
               <Markdown>{data.body}</Markdown>
             ) : (
@@ -191,9 +192,14 @@ export function CaseDetailsScreen({ navigation, route }: any) {
             );
           })()}
 
-          {/* Author. A real in-app author (uid) gets the rich profile card;
-              otherwise a first-party posting links its handle to the
-              author-by-handle screen. External postings show nothing. */}
+          {/* Author. A real in-app author (uid) gets the rich profile card.
+              A first-party (channel="app") posting links its anonymous
+              handle to the in-app author-by-handle screen. gov-news content
+              has a fixed per-source handle (e.g. "USCIS") with no in-app
+              profile behind it, so it links out to the source URL instead
+              — see docs/ingestion/GOV-NEWS-INGESTION-PLAN.md §3.6 (website
+              parity: case/[id]/page.tsx). Other external content (Reddit)
+              shows nothing, same as before. */}
           {data.author_id ? (
             <AuthorCard
               authorId={data.author_id}
@@ -202,7 +208,22 @@ export function CaseDetailsScreen({ navigation, route }: any) {
               onOpenPosting={(cid) => navigation.push('CaseDetails', { caseId: cid })}
               onOpenAuthor={(uid) => navigation.navigate('Author', { uid })}
             />
-          ) : data.author_handle ? (
+          ) : data.channel === 'gov_news' && data.author_handle ? (
+            <Card style={styles.bodyCard}>
+              <View style={styles.cardHeader}>
+                <Ionicons name="person-circle-outline" size={20} color={colors.secondary} />
+                <Text style={styles.cardTitle}>Source</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.authorHandleRow}
+                onPress={() => Linking.openURL(data.url)}
+              >
+                <Text style={styles.authorHandleText}>{data.author_handle}</Text>
+                <Ionicons name="open-outline" size={16} color={colors.primary} />
+              </TouchableOpacity>
+              <Text style={styles.authorHandleHint}>View the original announcement</Text>
+            </Card>
+          ) : data.channel === 'app' && data.author_handle ? (
             <Card style={styles.bodyCard}>
               <View style={styles.cardHeader}>
                 <Ionicons name="person-circle-outline" size={20} color={colors.secondary} />
@@ -243,7 +264,6 @@ export function CaseDetailsScreen({ navigation, route }: any) {
             <Replies postingId={data.case_id} onPostingTally={onPostingTally} />
           </View>
 
-          <View style={{ height: spacing.xl }} />
         </ScrollView>
       )}
     </SafeAreaView>

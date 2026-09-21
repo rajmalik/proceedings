@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,48 +9,95 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Header, PostingCard, Skeleton, EmptyState, ErrorState, AnimatedListItem } from '../components';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Header, PostingCard, Skeleton, EmptyState, ErrorState, AnimatedListItem, FilterChip, AppText } from '../components';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing, borderRadius } from '../constants/theme';
+import { AI_ASSIST_ENABLED } from '../constants/flags';
+import { openAssist } from '../utils/assistLauncher';
 import {
   searchPostings,
+  browsePostings,
+  fetchQueryTags,
   facetId,
   SearchResultItem,
   SuggestedFilterGroup,
-  Strictness,
+  QueryTag,
 } from '../services/apiService';
 
 // Same example prompts as the website's empty search state.
 const EXAMPLES = ['B1/B2 Mumbai', 'H-1B RFE', 'F-1 to H-1B'];
 
-const STRICTNESS_LEVELS: { value: Strictness; label: string }[] = [
-  { value: 'broad', label: 'Broad' },
-  { value: 'balanced', label: 'Balanced' },
-  { value: 'strict', label: 'Strict' },
-];
+// Fallback label for a facet id with no known display label yet (restored
+// from state with none recorded) — turns "tags:change-of-status-COS" into
+// "Change Of Status COS".
+function humanizeFacetId(id: string): string {
+  const code = id.includes(':') ? id.slice(id.indexOf(':') + 1) : id;
+  return code.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Clear the absolutely-positioned floating tab bar (~70pt) so the last cards
+// and the "Load more" button stay reachable.
+const TAB_BAR_CLEARANCE = 96;
 
 export function SearchScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets();
   const { isBlocked } = useAuth();
   const [query, setQuery] = useState('');
-  const [strictness, setStrictness] = useState<Strictness>('balanced');
   const [results, setResults] = useState<SearchResultItem[]>([]);
   // Case ids the viewer just reported/blocked — hidden instantly (App Store 1.2).
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [suggested, setSuggested] = useState<SuggestedFilterGroup[]>([]);
+  const [queryTags, setQueryTags] = useState<QueryTag[]>([]);
   const [selectedFacets, setSelectedFacets] = useState<Set<string>>(new Set());
+  // Display labels for selectedFacets, keyed by facet id — independent of
+  // `suggested`, which is recomputed from the CURRENT (already-filtered)
+  // result set and can silently stop including a facet the user has
+  // selected, leaving no affordance to remove it. This map is the client's
+  // own record of what's active, so the "Active filters" chips below
+  // always have something to render and remove.
+  const [facetLabels, setFacetLabels] = useState<Record<string, string>>({});
   const [nextPageToken, setNextPageToken] = useState('');
   const [searched, setSearched] = useState(false);
+  // 'browse' = default recent feed (empty query); 'search' = typed/faceted
+  // relevance query. Drives which source "Load more" pages from.
+  const [mode, setMode] = useState<'browse' | 'search'>('browse');
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
 
+  // Default feed: the most-recent postings, auto-loaded (no empty prompt).
+  const loadFeed = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    setMode('browse');
+    setSelectedFacets(new Set());
+    setFacetLabels({});
+    setSuggested([]);
+    setQueryTags([]);
+    try {
+      const data = await browsePostings({ sort: 'event' });
+      setResults(data.results);
+      setNextPageToken(data.next_page_token);
+      setSearched(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load feed');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFeed();
+  }, [loadFeed]);
+
   const runSearch = useCallback(
-    async (q: string, facets: Set<string>, level: Strictness) => {
+    async (q: string, facets: Set<string>) => {
       setLoading(true);
       setError('');
+      setMode('search');
       try {
         const data = await searchPostings(q, {
-          strictness: level,
           facets: Array.from(facets),
         });
         setResults(data.results);
@@ -70,11 +117,13 @@ export function SearchScreen({ navigation }: any) {
     if (!nextPageToken || loadingMore) return;
     setLoadingMore(true);
     try {
-      const data = await searchPostings(query, {
-        strictness,
-        facets: Array.from(selectedFacets),
-        pageToken: nextPageToken,
-      });
+      const data =
+        mode === 'browse'
+          ? await browsePostings({ sort: 'event', pageToken: nextPageToken })
+          : await searchPostings(query, {
+              facets: Array.from(selectedFacets),
+              pageToken: nextPageToken,
+            });
       setResults((prev) => [...prev, ...data.results]);
       setNextPageToken(data.next_page_token);
     } catch {
@@ -84,35 +133,44 @@ export function SearchScreen({ navigation }: any) {
     }
   };
 
-  const toggleFacet = (field: string, code: string) => {
+  const toggleFacet = (field: string, code: string, label?: string) => {
     const id = facetId(field, code);
     const next = new Set(selectedFacets);
-    if (next.has(id)) next.delete(id);
+    const removing = next.has(id);
+    if (removing) next.delete(id);
     else next.add(id);
     setSelectedFacets(next);
-    runSearch(query, next, strictness);
+    if (!removing && label) setFacetLabels((prev) => ({ ...prev, [id]: label }));
+    runSearch(query, next);
   };
 
-  const changeStrictness = (level: Strictness) => {
-    setStrictness(level);
-    if (searched) runSearch(query, selectedFacets, level);
+  // Definitive fallback for clearing every active facet at once — separate
+  // from removing them one at a time via toggleFacet.
+  const clearFilters = () => {
+    setSelectedFacets(new Set());
+    runSearch(query, new Set());
   };
 
   const submit = (q?: string) => {
     const text = (q ?? query).trim();
     if (q !== undefined) setQuery(q);
     setSelectedFacets(new Set());
-    runSearch(text, new Set(), strictness);
+    if (!text) {
+      loadFeed(); // empty search reverts to the recent feed
+      return;
+    }
+    runSearch(text, new Set());
+    // Query-derived tag chips (parallel, non-blocking — a real Gemini call,
+    // so this fires once per submit, not per keystroke). Best-effort: a
+    // slow/failed call just leaves the chip row empty.
+    fetchQueryTags(text).then(setQueryTags).catch(() => {});
   };
 
   return (
     <View style={styles.container}>
       <Header
-        title="Community"
-        showLogo={false}
+        showLogo
         transparent
-        showProfile
-        onProfile={() => navigation.navigate('Profile')}
         rightAction={
           <TouchableOpacity
             style={styles.postButton}
@@ -124,7 +182,12 @@ export function SearchScreen({ navigation }: any) {
         }
       />
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Search box */}
         <View style={styles.searchRow}>
           <View style={styles.searchInputWrap}>
@@ -133,7 +196,7 @@ export function SearchScreen({ navigation }: any) {
               style={styles.searchInput}
               value={query}
               onChangeText={setQuery}
-              placeholder="Search visa experiences…"
+              placeholder="Search USA visits/migration journey…"
               placeholderTextColor={colors.onSurfaceVariant}
               returnKeyType="search"
               onSubmitEditing={() => submit()}
@@ -146,25 +209,79 @@ export function SearchScreen({ navigation }: any) {
               <Text style={styles.searchButtonText}>Search</Text>
             )}
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.advancedSearchButton}
+            onPress={() => navigation.navigate('AdvancedSearch')}
+            accessibilityLabel="Advanced Search"
+          >
+            <Ionicons name="options-outline" size={20} color={colors.onSurfaceVariant} />
+          </TouchableOpacity>
         </View>
 
-        {/* Strictness — parity with the website's precision slider */}
-        <View style={styles.strictnessRow}>
-          <Text style={styles.strictnessLabel}>Precision</Text>
-          <View style={styles.segmented}>
-            {STRICTNESS_LEVELS.map((l) => (
-              <TouchableOpacity
-                key={l.value}
-                style={[styles.segment, strictness === l.value && styles.segmentActive]}
-                onPress={() => changeStrictness(l.value)}
-              >
-                <Text style={[styles.segmentText, strictness === l.value && styles.segmentTextActive]}>
-                  {l.label}
-                </Text>
+        {/* AI Assist launcher (flag-gated) — opens the global chat modal, which
+            also handles posting. Website parity: the Home "Ask AI/Post" entry. */}
+        {AI_ASSIST_ENABLED && (
+          <TouchableOpacity style={styles.askAiButton} onPress={openAssist} accessibilityLabel="Ask AI or post a question">
+            <Ionicons name="sparkles" size={16} color={colors.onPrimary} />
+            <Text style={styles.askAiText}>Ask AI / Post</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* The client's own record of active facets — always shown and
+            removable, independent of whether the next `suggested` response
+            happens to echo these same facets back (a facet that narrows
+            the result set enough can legitimately stop being suggested for
+            that narrower set, which previously left no way to undo it). */}
+        {selectedFacets.size > 0 && (
+          <View style={styles.filtersBlock}>
+            <View style={styles.activeFiltersHeader}>
+              <AppText variant="labelMd" color="onSurface" style={styles.queryTagsTitle}>
+                Active filters
+              </AppText>
+              <TouchableOpacity onPress={clearFilters}>
+                <AppText variant="caption" color="primary">Clear all</AppText>
               </TouchableOpacity>
-            ))}
+            </View>
+            <View style={styles.queryTagsRow}>
+              {Array.from(selectedFacets).map((id) => {
+                const idx = id.indexOf(':');
+                const field = idx >= 0 ? id.slice(0, idx) : id;
+                const code = idx >= 0 ? id.slice(idx + 1) : '';
+                return (
+                  <FilterChip
+                    key={id}
+                    label={facetLabels[id] || humanizeFacetId(id)}
+                    selected
+                    onPress={() => toggleFacet(field, code)}
+                  />
+                );
+              })}
+            </View>
           </View>
-        </View>
+        )}
+
+        {/* Tags generated from the search text itself (Gemini, same tagging
+            principles as posting composition) — a separate concept from the
+            "Refine by" facets below, which are backend result-derived.
+            Tapping one plugs into the same selectedFacets/toggleFacet
+            mechanism. features/ui-changes-1/changes-2-.md item 4. */}
+        {queryTags.length > 0 && (
+          <View style={styles.filtersBlock}>
+            <AppText variant="labelMd" color="onSurface" style={styles.queryTagsTitle}>
+              Tags from your search
+            </AppText>
+            <View style={styles.queryTagsRow}>
+              {queryTags.map((t) => (
+                <FilterChip
+                  key={facetId(t.field, t.code)}
+                  label={t.label}
+                  selected={selectedFacets.has(facetId(t.field, t.code))}
+                  onPress={() => toggleFacet(t.field, t.code, t.label)}
+                />
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Suggested filters from the search response (website parity) */}
         {suggested.length > 0 && (
@@ -183,7 +300,7 @@ export function SearchScreen({ navigation }: any) {
                       <TouchableOpacity
                         key={v.code}
                         style={[styles.facetChip, active && styles.facetChipActive]}
-                        onPress={() => toggleFacet(g.field, v.code)}
+                        onPress={() => toggleFacet(g.field, v.code, v.label)}
                       >
                         <Text style={[styles.facetChipText, active && styles.facetChipTextActive]}>
                           {v.label} ({v.count})
@@ -198,7 +315,7 @@ export function SearchScreen({ navigation }: any) {
         )}
 
         {error ? (
-          <ErrorState body={error} onRetry={() => runSearch(query, selectedFacets, strictness)} />
+          <ErrorState body={error} onRetry={() => runSearch(query, selectedFacets)} />
         ) : null}
 
         {/* Loading — skeleton feed instead of a bare spinner */}
@@ -208,7 +325,7 @@ export function SearchScreen({ navigation }: any) {
         {!searched && !loading && (
           <View style={styles.emptyState}>
             <Ionicons name="search" size={40} color={colors.onSurfaceVariant} />
-            <Text style={styles.emptyTitle}>Search real visa experiences</Text>
+            <Text style={styles.emptyTitle}>Search real USA visits/migration journey</Text>
             <Text style={styles.emptyText}>
               Find postings from applicants in the same situation — by visa, consulate, or what happened.
             </Text>
@@ -262,7 +379,6 @@ export function SearchScreen({ navigation }: any) {
           );
         })()}
 
-        <View style={{ height: spacing.xl }} />
       </ScrollView>
     </View>
   );
@@ -293,6 +409,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   searchButtonText: { color: colors.onPrimary, fontWeight: '600', fontSize: 14 },
+  advancedSearchButton: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceContainerLowest,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  askAiButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.base,
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.primary,
+  },
+  askAiText: { color: colors.onPrimary, fontWeight: '600', fontSize: 14 },
   postButton: {
     width: 36,
     height: 36,
@@ -302,26 +440,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 4,
   },
-  strictnessRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.md,
-  },
-  strictnessLabel: { fontSize: 13, color: colors.onSurfaceVariant, fontWeight: '500' },
-  segmented: {
-    flexDirection: 'row',
-    backgroundColor: colors.surfaceContainerHigh,
-    borderRadius: borderRadius.full,
-    padding: 3,
-  },
-  segment: { paddingVertical: 6, paddingHorizontal: spacing.md, borderRadius: borderRadius.full },
-  segmentActive: { backgroundColor: colors.primary },
-  segmentText: { fontSize: 13, color: colors.onSurfaceVariant },
-  segmentTextActive: { color: colors.onPrimary, fontWeight: '600' },
   filtersBlock: { marginTop: spacing.md },
   filtersHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.base },
+  activeFiltersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   filtersTitle: { fontSize: 13, fontWeight: '600', color: colors.onSurface },
+  queryTagsTitle: { marginBottom: spacing.base },
+  queryTagsRow: { flexDirection: 'row', flexWrap: 'wrap' },
   filterGroup: { marginBottom: spacing.base },
   filterGroupLabel: {
     fontSize: 11,
