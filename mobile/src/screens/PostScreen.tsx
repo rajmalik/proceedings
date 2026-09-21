@@ -28,6 +28,7 @@ import {
   TagVocab,
   PostingGroups,
   ReconcileResult,
+  AssistPostDraft,
 } from '../services/apiService';
 
 const EMPTY_GROUPS: PostingGroups = {
@@ -113,8 +114,11 @@ function TagTypeahead({
 
 export function PostScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
-  const route = useRoute<RouteProp<Record<string, { kind?: string } | undefined>, string>>();
+  const route = useRoute<
+    RouteProp<Record<string, { kind?: string; assistDraft?: AssistPostDraft } | undefined>, string>
+  >();
   const routeKind = route.params?.kind;
+  const assistDraft = route.params?.assistDraft;
   const [kind, setKind] = useState<PostKind>(
     routeKind === 'blog' ? 'blog' : routeKind === 'discussion' ? 'discussion' : ''
   );
@@ -160,6 +164,12 @@ export function PostScreen() {
 
   useEffect(() => {
     (async () => {
+      // An AI-Assist handoff draft (route param) wins over the crash-recovery
+      // draft — don't let the async AsyncStorage read clobber it.
+      if (assistDraft) {
+        hydrated.current = true;
+        return;
+      }
       try {
         const raw = await AsyncStorage.getItem(draftKey);
         if (raw) {
@@ -205,6 +215,21 @@ export function PostScreen() {
   const clearDraft = () => {
     AsyncStorage.removeItem(draftKey).catch(() => {});
   };
+
+  // AI-Assist handoff: prefill from the stashed draft (the assistant's
+  // post_draft) and jump straight to the tags panel. Runs once on arrival.
+  useEffect(() => {
+    if (!assistDraft) return;
+    setTitle(assistDraft.title || '');
+    setDescription(assistDraft.description || '');
+    const g: PostingGroups = { ...EMPTY_GROUPS, ...(assistDraft.groups || {}) };
+    setGroups({ ...g, tags: ensureKindTags(g.tags) });
+    setStages(assistDraft.key_stages_or_info || {});
+    setDates(assistDraft.key_dates || {});
+    setPostingType('');
+    setPreviewed(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assistDraft]);
 
   // Keep the discussion/blog tag in sync with the selected kind (initial mount +
   // when the user toggles Discussion ⇄ Blog).

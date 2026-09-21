@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, ActivityIndicator, Platform, DeviceEventEmitter } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator, NativeStackNavigationOptions } from '@react-navigation/native-stack';
 import {
@@ -27,7 +27,9 @@ import {
   DiscussionsScreen,
 } from '../screens';
 import { colors, spacing } from '../constants/theme';
-import { FloatingChatButton, ChatModal } from '../components/chat';
+import { FloatingChatButton, ChatModal, AssistModal } from '../components/chat';
+import { AI_ASSIST_ENABLED } from '../constants/flags';
+import { ASSIST_OPEN_EVENT } from '../utils/assistLauncher';
 import { FloatingTabBar } from '../components/FloatingTabBar';
 import { useAuth } from '../contexts/AuthContext';
 import { useAIConsent } from '../contexts/AIConsentContext';
@@ -185,6 +187,14 @@ const AI_CHAT_ENABLED = false;
 
 function TabNavigator() {
   const [isChatOpen, setIsChatOpen] = useState(false);
+  // AI Assist modal (flag-gated). Opened by the global floating button OR by any
+  // screen emitting ASSIST_OPEN_EVENT (e.g. the Home search-row "Ask AI/Post").
+  const [assistOpen, setAssistOpen] = useState(false);
+  useEffect(() => {
+    if (!AI_ASSIST_ENABLED) return;
+    const sub = DeviceEventEmitter.addListener(ASSIST_OPEN_EVENT, () => setAssistOpen(true));
+    return () => sub.remove();
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -231,18 +241,22 @@ function TabNavigator() {
         />
       </Tab.Navigator>
 
-      {/* AI Chat Floating Button and Modal - disabled to match the website
-          (AI_MODE_ENABLED = false there). Re-enable via AI_CHAT_ENABLED above. */}
+      {/* Legacy /api/ask chat — disabled (AI_CHAT_ENABLED=false); superseded by
+          the AI Assist modal below. */}
       {AI_CHAT_ENABLED && (
         <>
-          <FloatingChatButton
-            onPress={() => setIsChatOpen(true)}
-            isOpen={isChatOpen}
-          />
-          <ChatModal
-            visible={isChatOpen}
-            onClose={() => setIsChatOpen(false)}
-          />
+          <FloatingChatButton onPress={() => setIsChatOpen(true)} isOpen={isChatOpen} />
+          <ChatModal visible={isChatOpen} onClose={() => setIsChatOpen(false)} />
+        </>
+      )}
+
+      {/* AI Assist — the /api/assist conversational assistant (website parity),
+          gated by EXPO_PUBLIC_AI_ASSIST_ENABLED. Global floating launcher + the
+          full-screen chat modal, also openable from the Home search row. */}
+      {AI_ASSIST_ENABLED && (
+        <>
+          <FloatingChatButton onPress={() => setAssistOpen(true)} isOpen={assistOpen} />
+          <AssistModal visible={assistOpen} onClose={() => setAssistOpen(false)} />
         </>
       )}
     </View>

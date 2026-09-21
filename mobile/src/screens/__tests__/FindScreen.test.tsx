@@ -23,6 +23,8 @@ const PREVIEW = { name: 'H-1B-change-of-status-COS-Mar-2026', description: 'Gene
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
+  // No deep-link params by default; the AI-Assist handoff prefill is inert here.
+  useRoute: () => ({ params: {} }),
 }));
 
 jest.mock('../../services/apiService', () => {
