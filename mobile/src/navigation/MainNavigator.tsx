@@ -109,6 +109,7 @@ function DiscussionsStack() {
   return (
     <Stack.Navigator screenOptions={screenTransitionOptions}>
       <Stack.Screen name="DiscussionsMain" component={DiscussionsScreen} />
+      <Stack.Screen name="Post" component={PostScreen} />
       <Stack.Screen name="GroupChat" component={GroupChatScreen} />
       <Stack.Screen name="GroupAttributes" component={GroupAttributesScreen} />
       <Stack.Screen name="CaseDetails" component={CaseDetailsScreen} />

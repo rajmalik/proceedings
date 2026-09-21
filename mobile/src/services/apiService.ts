@@ -526,7 +526,9 @@ export async function createPosting(
 ): Promise<{ case_id: string; author_handle: string }> {
   const response = await apiFetch(`${API_URL}/api/postings`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // The backend requires a signed-in author (Bearer/X-User-Id); a personal-case
+    // post also needs a set-up profile, while a discussion/blog is exempt.
+    headers: userHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ title, description, tags, key_stages_or_info, key_dates, client_platform }),
   });
   const data = await safeJson(response);
