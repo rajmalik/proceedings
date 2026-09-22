@@ -18,6 +18,7 @@ Run:  python tests/test_assist_hardening.py
 Wired into the no-GCP CI gate.
 """
 import inspect
+import os
 import sys
 from pathlib import Path
 
@@ -233,6 +234,40 @@ def group_e() -> None:
         })
         check("E3 empty-profile BLOG post -> 200 (exempt)", blog.status_code == 200,
               f"status={blog.status_code}")
+
+        # Curated/offline publish: a trusted caller carrying the internal secret
+        # bypasses the signed-in-user gate (fix for the manual publish.sh, which
+        # posts to /api/postings with no app auth and 401'd after the hardening).
+        _prev = os.environ.get("GOV_NEWS_POLL_SECRET")
+        os.environ["GOV_NEWS_POLL_SECRET"] = "test-internal-secret"
+        try:
+            curated = client.post(
+                "/api/postings",
+                headers={"X-Internal-Poll-Secret": "test-internal-secret"},  # note: NO X-User-Id
+                json={"title": "A curated tip", "description": "A curated how-to guide for everyone.",
+                      "tags": {"tags": ["general-inquiry"]}},
+            )
+            check("E4 valid internal secret publishes with NO signed-in user (curated bypass)",
+                  curated.status_code == 200 and curated.json().get("case_id") == "app-e2e-test",
+                  f"status={curated.status_code} body={curated.json()}")
+
+            # Valid title/body so this reaches the auth gate (not request
+            # validation): a wrong secret must NOT bypass -> no signed-in user
+            # here, so it is rejected (4xx), never published.
+            bad = client.post(
+                "/api/postings",
+                headers={"X-Internal-Poll-Secret": "wrong-secret"},
+                json={"title": "A wrong-secret attempt", "description": "a general explainer, also long enough",
+                      "tags": {"tags": ["general-inquiry"]}},
+            )
+            check("E5 wrong internal secret -> still gated (4xx, not published)",
+                  bad.status_code != 200 and 400 <= bad.status_code < 500,
+                  f"status={bad.status_code}")
+        finally:
+            if _prev is None:
+                os.environ.pop("GOV_NEWS_POLL_SECRET", None)
+            else:
+                os.environ["GOV_NEWS_POLL_SECRET"] = _prev
     finally:
         profile.get_profile = orig_get_profile
         posting.publish_posting = orig_publish
