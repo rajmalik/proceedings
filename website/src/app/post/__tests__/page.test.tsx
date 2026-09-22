@@ -276,3 +276,67 @@ describe('PostPage — discussion/blog mode (reuse /post for the Discussions fee
     expect(await screen.findByRole('heading', { name: 'Post a new message' })).toBeInTheDocument()
   })
 })
+
+// STEM OPT unified timeline (features/stem-opt-timeline-9/, Phase 2): when
+// tag-suggest tags a posting `stem-opt-extension`, the composer shows the shared
+// structured timeline card (prefilled from the parsed dates/stages) in place of
+// the generic key-date/stage rows, and the structured fields are submitted.
+describe('PostPage — STEM OPT timeline card', () => {
+  let stemBody: Record<string, unknown> | null
+
+  function mockStemApi(groupsOver: Record<string, unknown> = {}) {
+    stemBody = null
+    global.fetch = vi.fn(async (url: string, opts?: { method?: string; body?: string }) => {
+      const u = String(url)
+      if (u.includes('/api/tag-vocab')) return json(VOCAB)
+      if (u.includes('/api/tag-suggest')) return json({
+        groups: { ...EMPTY_GROUPS, visa_applying_for: ['F-1'], tags: ['stem-opt-extension'], ...groupsOver },
+        relevant_sections: ['visa_applying_for'], posting_type: 'in_us_status',
+        key_stages_or_info: { application_status: 'approved' },
+        key_dates: { ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' },
+      })
+      if (u.includes('/api/reconcile')) return json({}, false, 404)
+      if (u.includes('/api/postings') && opts?.method === 'POST') {
+        stemBody = JSON.parse(opts!.body as string)
+        return json({ case_id: 'app-stem-1', author_handle: 'anon' })
+      }
+      return json({})
+    }) as unknown as typeof fetch
+  }
+
+  async function previewStem(groupsOver: Record<string, unknown> = {}) {
+    mockStemApi(groupsOver)
+    render(<PostPage />)
+    fireEvent.change(screen.getByPlaceholderText(/H-1B extension with an RFE/), { target: { value: 'STEM OPT approved after 190 days' } })
+    fireEvent.change(screen.getByPlaceholderText(/Describe your situation/), {
+      target: { value: 'Filed my I-765 for the STEM OPT extension on 2026-03-18, approved 2026-09-17.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    await screen.findByText('Review tags')
+  }
+
+  it('shows the timeline card prefilled and hides the generic key-date rows', async () => {
+    await previewStem()
+    expect(screen.getByTestId('stem-opt-timeline-card')).toBeInTheDocument()
+    expect((screen.getByLabelText('Date applied (I-765 filed)') as HTMLInputElement).value).toBe('2026-03-18')
+    expect(screen.getByTestId('stem-opt-summary')).toHaveTextContent('Filed Mar 2026')
+    // the generic "Key dates" section is replaced by the card
+    expect(screen.queryByText('Key dates')).toBeNull()
+  })
+
+  it('does NOT show the card for a non-STEM-OPT posting', async () => {
+    await previewStem({ tags: [] })  // no stem-opt-extension tag
+    expect(screen.queryByTestId('stem-opt-timeline-card')).toBeNull()
+  })
+
+  it('submits with the structured STEM OPT timeline fields', async () => {
+    await previewStem()
+    fireEvent.click(screen.getByRole('button', { name: /Submit posting/ }))
+    await waitFor(() => expect(stemBody).not.toBeNull())
+    const keyDates = stemBody!.key_dates as Record<string, string>
+    const keyStages = stemBody!.key_stages_or_info as Record<string, string>
+    expect(keyDates.ead_filed_date).toBe('2026-03-18')
+    expect(keyDates.ead_approved_date).toBe('2026-09-17')
+    expect(keyStages.application_status).toBe('approved')
+  })
+})

@@ -1,48 +1,132 @@
-import { describe, it } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import StemOptTimelineCard from '@/components/StemOptTimelineCard'
+import {
+  filingPeriodFromDate,
+  totalDays,
+  stemOptSummary,
+  isStemOptTimeline,
+  STEM_OPT_TIMELINE_FIELDS,
+} from '@/lib/stemOptTimeline'
 
 /**
- * Acceptance criteria for the STEM OPT unified-timeline feature (website side),
- * written BEFORE implementation (TDD) — features/stem-opt-timeline-9/.
- *
- * Scope: STEM OPT only (`EAD → stem-opt-extension`). These are `it.todo`
- * pending specs (CI-safe: they neither import the unbuilt component nor fail the
- * suite). During Phase 2/3 each `todo` converts 1:1 into a real test against the
- * component/helpers it names — do NOT delete a criterion, implement it.
- *
- * The cohort deep-link TARGET (/find reading
- * ?type=timeline&processing_type=EAD&eligibility=stem-opt-extension&filing_month=..&filing_year=..)
- * already exists and is covered in app/find/__tests__/page.test.tsx — the specs
- * below cover the NEW capture card, the /post prefill, and building that link
- * from a posting's ead_filed_date.
+ * STEM OPT unified-timeline — Phase 2 (features/stem-opt-timeline-9/).
+ * Scope: STEM OPT only. The cross-link + Timeline-form specs stay `it.todo`
+ * for Phase 3.
  */
 
+describe('stemOptTimeline (lib)', () => {
+  it('filingPeriodFromDate derives month/year from a strict ISO date; else null', () => {
+    expect(filingPeriodFromDate('2026-03-18')).toEqual({ filing_month: 'Mar', filing_year: '2026' })
+    expect(filingPeriodFromDate('2025-12-31')).toEqual({ filing_month: 'Dec', filing_year: '2025' })
+    expect(filingPeriodFromDate('')).toBeNull()
+    expect(filingPeriodFromDate('March 18, 2026')).toBeNull()
+    expect(filingPeriodFromDate('2026-13-01')).toBeNull()
+    expect(filingPeriodFromDate('2026-3-8')).toBeNull()
+  })
+
+  it('totalDays counts filed→approved, or null when missing/negative', () => {
+    expect(totalDays({ ead_filed_date: '2026-03-01', ead_approved_date: '2026-03-31' })).toBe(30)
+    expect(totalDays({ ead_filed_date: '2026-03-01' })).toBeNull()
+    expect(totalDays({ ead_filed_date: '2026-03-31', ead_approved_date: '2026-03-01' })).toBeNull()
+  })
+
+  it('stemOptSummary reads like a timeline and degrades gracefully', () => {
+    expect(stemOptSummary({ ead_filed_date: '2026-03-01', ead_approved_date: '2026-03-31' }, { premium_processing: 'yes' }))
+      .toBe('Filed Mar 2026 · approved in 30 days · PP')
+    expect(stemOptSummary({}, {})).toBe('Filing date not set · no PP')
+    expect(stemOptSummary({ ead_filed_date: '2026-03-01' }, { application_status: 'pending' }))
+      .toBe('Filed Mar 2026 · pending · no PP')
+  })
+
+  it('isStemOptTimeline detects the stem-opt-extension tag', () => {
+    expect(isStemOptTimeline({ tags: ['EAD', 'stem-opt-extension'] })).toBe(true)
+    expect(isStemOptTimeline({ tags: ['h1b-petition'] })).toBe(false)
+    expect(isStemOptTimeline(null)).toBe(false)
+  })
+})
+
 describe('StemOptTimelineCard — shared capture component', () => {
-  it.todo('renders the canonical STEM OPT fields from the stem-opt-extension template (filed/biometrics/approved dates, status, service center, PP, RFE/NOID)')
-  it.todo('prefills every field from the posting key_dates/key_stages it is given')
-  it.todo('leaves unparsed fields blank and visibly flags them as needing input (never fabricates a value)')
-  it.todo('computes and displays derived total days from ead_filed_date → ead_approved_date')
-  it.todo('shows a human-readable timeline summary (e.g. "Filed Mar 2026 · approved in 190 days · no PP"), not just a raw form')
-  it.todo('editing a field updates the underlying key_dates/key_stages passed back to the parent')
-  it.todo('validates dates as YYYY-MM-DD and keeps status/service-center within their vocab options')
+  const noop = () => {}
+
+  it('renders the canonical STEM OPT fields from the template', () => {
+    render(<StemOptTimelineCard keyDates={{}} keyStages={{}} onChange={noop} />)
+    for (const f of STEM_OPT_TIMELINE_FIELDS) {
+      expect(screen.getByLabelText(f.label)).toBeInTheDocument()
+    }
+  })
+
+  it('prefills every field from the key_dates/key_stages it is given', () => {
+    render(
+      <StemOptTimelineCard
+        keyDates={{ ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' }}
+        keyStages={{ application_status: 'approved', premium_processing: 'yes' }}
+        onChange={noop}
+      />
+    )
+    expect((screen.getByLabelText('Date applied (I-765 filed)') as HTMLInputElement).value).toBe('2026-03-18')
+    expect((screen.getByLabelText('Status') as HTMLSelectElement).value).toBe('approved')
+    expect((screen.getByLabelText('Premium processing') as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('leaves unparsed fields blank and flags the missing filing-date anchor (never fabricates)', () => {
+    const { rerender } = render(<StemOptTimelineCard keyDates={{}} keyStages={{}} onChange={noop} />)
+    // blank, not fabricated
+    expect((screen.getByLabelText('Date applied (I-765 filed)') as HTMLInputElement).value).toBe('')
+    // anchor flagged as needed
+    expect(screen.getByTestId('needs-ead_filed_date')).toBeInTheDocument()
+    // once provided, the flag is gone
+    rerender(<StemOptTimelineCard keyDates={{ ead_filed_date: '2026-03-18' }} keyStages={{}} onChange={noop} />)
+    expect(screen.queryByTestId('needs-ead_filed_date')).toBeNull()
+  })
+
+  it('computes and displays the derived total days and a readable summary', () => {
+    render(
+      <StemOptTimelineCard
+        keyDates={{ ead_filed_date: '2026-03-01', ead_approved_date: '2026-03-31' }}
+        keyStages={{ premium_processing: 'yes' }}
+        onChange={noop}
+      />
+    )
+    const summary = screen.getByTestId('stem-opt-summary')
+    expect(summary).toHaveTextContent('Filed Mar 2026')
+    expect(summary).toHaveTextContent('approved in 30 days')
+    expect(summary).toHaveTextContent('30 days total')
+  })
+
+  it('editing a field updates the underlying key_dates/key_stages passed back', () => {
+    const onChange = vi.fn()
+    render(<StemOptTimelineCard keyDates={{}} keyStages={{}} onChange={onChange} />)
+
+    fireEvent.change(screen.getByLabelText('Date applied (I-765 filed)'), { target: { value: '2026-03-18' } })
+    expect(onChange).toHaveBeenLastCalledWith({ ead_filed_date: '2026-03-18' }, {})
+
+    onChange.mockClear()
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'approved' } })
+    expect(onChange).toHaveBeenLastCalledWith({}, { application_status: 'approved' })
+
+    onChange.mockClear()
+    fireEvent.click(screen.getByLabelText('Premium processing'))
+    expect(onChange).toHaveBeenLastCalledWith({}, { premium_processing: 'yes' })
+  })
+
+  it('keeps status/service-center within their vocab options', () => {
+    render(<StemOptTimelineCard keyDates={{}} keyStages={{}} onChange={noop} />)
+    const status = screen.getByLabelText('Status') as HTMLSelectElement
+    const opts = Array.from(status.options).map((o) => o.value)
+    expect(opts).toEqual(['', 'approved', 'pending', 'denied', 'RFE', 'NOID'])
+  })
 })
 
-describe('StemOptTimelineCard — /post integration (free-text on-ramp)', () => {
-  it.todo('after Preview, when tag-suggest detects STEM OPT (stem-opt-extension/EAD), the card appears prefilled from the extracted key_dates/key_stages')
-  it.todo('does NOT appear for a non-STEM-OPT posting')
-  it.todo('a partial extraction still lets the posting submit (the card is not a blocking gate)')
-  it.todo('on submit, the posting carries BOTH the narrative description and the confirmed structured fields')
-  it.todo('the confirmed card is the source of truth when it disagrees with the raw extraction')
-})
-
-describe('STEM OPT posting ⇄ cohort cross-link (bidirectional)', () => {
-  it.todo('derives {filing_month, filing_year} from ead_filed_date to build the cohort deep-link')
-  it.todo('offers "join / create your EAD · stem-opt cohort" after a STEM OPT posting, linking to /find?type=timeline&processing_type=EAD&eligibility=stem-opt-extension&filing_month=..&filing_year=..')
+// Phase 3 — cross-link + Timeline-form reuse (still pending).
+describe('STEM OPT posting ⇄ cohort cross-link (bidirectional) [Phase 3]', () => {
+  it.todo('offers "join / create your EAD · stem-opt cohort" after a STEM OPT posting, linking to /find?type=timeline&…filing_month/year from ead_filed_date')
   it.todo('prompts only for ead_filed_date at the bridge step when it is missing (rather than blocking the post)')
   it.todo('never auto-joins — the cohort join/create is user-confirmed')
   it.todo('from a stem-opt cohort membership, offers "Share as a posting" that prefills a post draft from the member attributes')
 })
 
-describe('StemOptTimelineCard — Timeline group form', () => {
+describe('StemOptTimelineCard — Timeline group form [Phase 3]', () => {
   it.todo('renders as the join/attribute form for stem-opt-extension (same card as /post)')
   it.todo('optionally accepts pasted free-text timeline → tag-suggest → prefills the card')
 })

@@ -8,6 +8,8 @@ import { useRequireUser } from '@/lib/useRequireUser'
 import { useAuth } from '@/contexts/AuthContext'
 import { readAndClearPostDraft } from '@/lib/assistDraft'
 import { mergeReconcile } from '@/lib/postReconcile'
+import StemOptTimelineCard from '@/components/StemOptTimelineCard'
+import { isStemOptTimeline } from '@/lib/stemOptTimeline'
 
 type Conflict = { field: string; profile_value?: unknown; message_value: unknown; message?: string }
 
@@ -483,8 +485,18 @@ function PostPageInner() {
                 )
               })}
 
-              {/* Stages & outcomes (only when detected) */}
-              {Object.keys(stages).length > 0 && (
+              {/* STEM OPT: the shared structured timeline card (prefilled from
+                  the parsed dates/stages) replaces the generic rows below. */}
+              {isStemOptTimeline(groups) && (
+                <StemOptTimelineCard
+                  keyDates={dates}
+                  keyStages={stages}
+                  onChange={(d, s) => { setDates(d); setStages(s) }}
+                />
+              )}
+
+              {/* Stages & outcomes (only when detected; hidden for STEM OPT) */}
+              {!isStemOptTimeline(groups) && Object.keys(stages).length > 0 && (
                 <div>
                   <p className="text-caption uppercase tracking-wide text-on-surface-variant mt-2 mb-1">Process / outcome</p>
                   <div className="space-y-1">
@@ -509,8 +521,8 @@ function PostPageInner() {
                 </div>
               )}
 
-              {/* Key dates (only when detected) */}
-              {Object.keys(dates).length > 0 && (
+              {/* Key dates (only when detected; hidden for STEM OPT) */}
+              {!isStemOptTimeline(groups) && Object.keys(dates).length > 0 && (
                 <div>
                   <p className="text-caption uppercase tracking-wide text-on-surface-variant mt-2 mb-1">Key dates</p>
                   <div className="space-y-1">
