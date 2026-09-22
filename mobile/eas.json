@@ -6,6 +6,7 @@
   "build": {
     "base": {
       "env": {
+        "EXPO_PUBLIC_AI_ASSIST_ENABLED": "1",
         "EXPO_PUBLIC_API_URL": "https://immiguide-api-971592620882.us-central1.run.app",
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDP54OKGTYch6BtKOLRCPDZJzooP1XOPnU",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "proceedings-490601.firebaseapp.com",
