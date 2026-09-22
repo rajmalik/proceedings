@@ -129,13 +129,47 @@ def group_d() -> None:
     if not callable(fn):
         pending("D1 posting.filing_period(ead_filed_date) exists",
                 "implement in Phase 1: '2026-03-18' -> {'filing_month':'Mar','filing_year':'2026'}")
-        pending("D2 derivation handles empty/invalid input -> {}")
         return
     check("D1 derives month + year from an ISO filed date",
           fn("2026-03-18") == {"filing_month": "Mar", "filing_year": "2026"}, str(fn("2026-03-18")))
-    check("D1b another month (Aug)",
-          fn("2026-08-31") == {"filing_month": "Aug", "filing_year": "2026"}, str(fn("2026-08-31")))
-    check("D2 empty/invalid input -> {}", fn("") == {} and fn("not-a-date") == {})
+    check("D1b Jan boundary", fn("2026-01-05") == {"filing_month": "Jan", "filing_year": "2026"})
+    check("D1c Dec boundary", fn("2025-12-31") == {"filing_month": "Dec", "filing_year": "2025"})
+    check("D1d Aug", fn("2026-08-31") == {"filing_month": "Aug", "filing_year": "2026"})
+    check("D2 empty -> {}", fn("") == {})
+    check("D2b None -> {}", fn(None) == {})
+    check("D2c prose date -> {}", fn("March 18, 2026") == {})
+    check("D2d non-zero-padded -> {} (must be strict ISO)", fn("2026-3-8") == {})
+    check("D2e out-of-range month -> {}", fn("2026-13-01") == {})
+    check("D2f zero month -> {}", fn("2026-00-10") == {})
+    check("D3 trims surrounding whitespace",
+          fn("  2026-03-18  ") == {"filing_month": "Mar", "filing_year": "2026"})
+
+
+def group_f() -> None:
+    print("\nF — cross-link: derived period feeds the cohort criteria + deep-link")
+    import assist
+    fn = getattr(posting, "filing_period", None)
+    if not callable(fn):
+        pending("F posting.filing_period required for the cross-link", "see group D")
+        return
+    period = fn("2026-03-18")  # {'filing_month': 'Mar', 'filing_year': '2026'}
+    r = assist.resolve_timeline_criteria({
+        "timeline_processing_type": "EAD",
+        "timeline_eligibility": "stem-opt-extension",
+        "timeline_filing_month": period.get("filing_month"),
+        "timeline_filing_year": period.get("filing_year"),
+    })
+    check("F1 a posting's ead_filed_date resolves a sufficient cohort", r.get("sufficient") is True, str(r))
+    c = r["criteria"]
+    check("F2 criteria tags = [EAD, stem-opt-extension]", c["tags"] == ["EAD", "stem-opt-extension"], str(c["tags"]))
+    check("F3 criteria carries the derived filing month/year",
+          c["key_stages_or_info"].get("filing_month") == "Mar"
+          and c["key_stages_or_info"].get("filing_year") == "2026", str(c["key_stages_or_info"]))
+    url = assist._timeline_find_url(r)
+    check("F4 posting→cohort deep-link carries EAD/stem-opt + Mar/2026",
+          all(s in url for s in
+              ("type=timeline", "processing_type=EAD", "eligibility=stem-opt-extension",
+               "filing_month=Mar", "filing_year=2026")), url)
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +212,7 @@ def main() -> None:
     group_b()
     group_c()
     group_d()
+    group_f()
     if scope in ("integration", "all"):
         group_e()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} invariant checks passed; {_pending} contract(s) pending (Phase 1)")
