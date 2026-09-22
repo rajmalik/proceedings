@@ -38,6 +38,7 @@ export { Replies } from './Replies';
 export { MatchCard } from './MatchCard';
 export type { MatchData } from './MatchCard';
 export { GroupChat } from './GroupChat';
+export { StemOptTimelineCard } from './StemOptTimelineCard';
 export type { ChatMessage } from './GroupChat';
 export { ChipSelector } from './ChipSelector';
 export { TagPicker } from './TagPicker';
