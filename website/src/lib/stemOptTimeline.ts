@@ -75,3 +75,19 @@ export function stemOptSummary(keyDates: Record<string, string>, keyStages: Reco
 export function isStemOptTimeline(groups: { tags?: string[] } | null | undefined): boolean {
   return !!groups?.tags?.includes('stem-opt-extension')
 }
+
+/** The Timeline-mode /find deep-link for this posting's EAD·stem-opt cohort,
+ *  derived from ead_filed_date. Null when the filed date is missing/invalid
+ *  (the caller then asks for just that date). FindScreen reads these params. */
+export function stemOptCohortUrl(keyDates: Record<string, string>): string | null {
+  const p = filingPeriodFromDate(keyDates?.ead_filed_date)
+  if (!p) return null
+  const q = new URLSearchParams({
+    type: 'timeline',
+    processing_type: 'EAD',
+    eligibility: 'stem-opt-extension',
+    filing_month: p.filing_month,
+    filing_year: p.filing_year,
+  })
+  return `/find?${q.toString()}`
+}

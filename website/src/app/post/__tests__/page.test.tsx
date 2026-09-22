@@ -284,7 +284,10 @@ describe('PostPage — discussion/blog mode (reuse /post for the Discussions fee
 describe('PostPage — STEM OPT timeline card', () => {
   let stemBody: Record<string, unknown> | null
 
-  function mockStemApi(groupsOver: Record<string, unknown> = {}) {
+  function mockStemApi(
+    groupsOver: Record<string, unknown> = {},
+    keyDates: Record<string, string> = { ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' },
+  ) {
     stemBody = null
     global.fetch = vi.fn(async (url: string, opts?: { method?: string; body?: string }) => {
       const u = String(url)
@@ -293,7 +296,7 @@ describe('PostPage — STEM OPT timeline card', () => {
         groups: { ...EMPTY_GROUPS, visa_applying_for: ['F-1'], tags: ['stem-opt-extension'], ...groupsOver },
         relevant_sections: ['visa_applying_for'], posting_type: 'in_us_status',
         key_stages_or_info: { application_status: 'approved' },
-        key_dates: { ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' },
+        key_dates: keyDates,
       })
       if (u.includes('/api/reconcile')) return json({}, false, 404)
       if (u.includes('/api/postings') && opts?.method === 'POST') {
@@ -304,8 +307,11 @@ describe('PostPage — STEM OPT timeline card', () => {
     }) as unknown as typeof fetch
   }
 
-  async function previewStem(groupsOver: Record<string, unknown> = {}) {
-    mockStemApi(groupsOver)
+  async function previewStem(
+    groupsOver: Record<string, unknown> = {},
+    keyDates?: Record<string, string>,
+  ) {
+    mockStemApi(groupsOver, keyDates)
     render(<PostPage />)
     fireEvent.change(screen.getByPlaceholderText(/H-1B extension with an RFE/), { target: { value: 'STEM OPT approved after 190 days' } })
     fireEvent.change(screen.getByPlaceholderText(/Describe your situation/), {
@@ -338,5 +344,59 @@ describe('PostPage — STEM OPT timeline card', () => {
     expect(keyDates.ead_filed_date).toBe('2026-03-18')
     expect(keyDates.ead_approved_date).toBe('2026-09-17')
     expect(keyStages.application_status).toBe('approved')
+  })
+
+  // Phase 3 (posting → cohort cross-link): after a STEM OPT posting publishes,
+  // the success screen offers the matching EAD·stem-opt Timeline cohort, deep-
+  // linked from ead_filed_date. When the filed date was not parsed, it asks for
+  // just that date, then reveals the link. It never auto-joins.
+  describe('STEM OPT posting → cohort bridge', () => {
+    async function submitStem(keyDates?: Record<string, string>) {
+      await previewStem({}, keyDates)
+      fireEvent.click(screen.getByRole('button', { name: /Submit posting/ }))
+      await screen.findByText('Posted!')
+    }
+
+    it('deep-links to the EAD·stem-opt cohort derived from the filed date', async () => {
+      await submitStem()
+      const link = (await screen.findByTestId('stem-opt-cohort-link')) as HTMLAnchorElement
+      expect(link.getAttribute('href')).toBe(
+        '/find?type=timeline&processing_type=EAD&eligibility=stem-opt-extension&filing_month=Mar&filing_year=2026'
+      )
+    })
+
+    it('asks for the I-765 filing date when it was not parsed, then reveals the link', async () => {
+      await submitStem({})  // no ead_filed_date parsed
+      expect(screen.queryByTestId('stem-opt-cohort-link')).toBeNull()
+      const input = screen.getByLabelText('I-765 filing date') as HTMLInputElement
+      fireEvent.change(input, { target: { value: '2026-03-18' } })
+      const link = (await screen.findByTestId('stem-opt-cohort-link')) as HTMLAnchorElement
+      expect(link.getAttribute('href')).toContain('filing_month=Mar&filing_year=2026')
+    })
+
+    it('does NOT show the cohort bridge for a non-STEM-OPT posting', async () => {
+      // non-STEM posting: tag-suggest without the stem-opt-extension tag
+      global.fetch = vi.fn(async (url: string, opts?: { method?: string; body?: string }) => {
+        const u = String(url)
+        if (u.includes('/api/tag-vocab')) return json(VOCAB)
+        if (u.includes('/api/tag-suggest')) return json({
+          groups: { ...EMPTY_GROUPS, visa_applying_for: ['H-1B'], tags: ['h1b-extension'] },
+          relevant_sections: ['visa_applying_for'], posting_type: 'in_us_status',
+          key_stages_or_info: {}, key_dates: {},
+        })
+        if (u.includes('/api/reconcile')) return json({}, false, 404)
+        if (u.includes('/api/postings') && opts?.method === 'POST') return json({ case_id: 'app-h1b-1', author_handle: 'anon' })
+        return json({})
+      }) as unknown as typeof fetch
+      render(<PostPage />)
+      fireEvent.change(screen.getByPlaceholderText(/H-1B extension with an RFE/), { target: { value: 'H-1B extension approved' } })
+      fireEvent.change(screen.getByPlaceholderText(/Describe your situation/), { target: { value: 'H-1B extension approved.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+      await screen.findByText('Review tags')
+      fireEvent.click(screen.getByRole('button', { name: /Submit posting/ }))
+      await screen.findByText('Posted!')
+      expect(screen.queryByTestId('stem-opt-cohort-link')).toBeNull()
+      expect(screen.queryByLabelText('I-765 filing date')).toBeNull()
+    })
   })
 })

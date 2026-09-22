@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { readAndClearPostDraft } from '@/lib/assistDraft'
 import { mergeReconcile } from '@/lib/postReconcile'
 import StemOptTimelineCard from '@/components/StemOptTimelineCard'
-import { isStemOptTimeline } from '@/lib/stemOptTimeline'
+import { isStemOptTimeline, stemOptCohortUrl, filingPeriodFromDate } from '@/lib/stemOptTimeline'
 
 type Conflict = { field: string; profile_value?: unknown; message_value: unknown; message?: string }
 
@@ -332,6 +332,41 @@ function PostPageInner() {
             className="btn-secondary"
           >Post another</button>
         </div>
+
+        {/* STEM OPT posting → cohort bridge. The post already published; this
+            only offers to join/create the matching EAD·stem-opt cohort, derived
+            from ead_filed_date (prompts for just that date when missing). Never
+            auto-joins — the user clicks the link. */}
+        {isStemOptTimeline(groups) && (
+          <div className="mt-8 pt-6 border-t border-outline-variant max-w-md mx-auto text-left">
+            <p className="text-label-md text-on-surface font-medium mb-1">Find others on your timeline</p>
+            {stemOptCohortUrl(dates) ? (
+              <>
+                <p className="text-caption text-on-surface-variant mb-3">
+                  Join or create the EAD · STEM OPT cohort for{' '}
+                  {filingPeriodFromDate(dates.ead_filed_date)?.filing_month}{' '}
+                  {filingPeriodFromDate(dates.ead_filed_date)?.filing_year}.
+                </p>
+                <Link href={stemOptCohortUrl(dates)!} className="btn-secondary" data-testid="stem-opt-cohort-link">
+                  Find your cohort →
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="text-caption text-on-surface-variant mb-2">
+                  Add your I-765 filing date to find your cohort:
+                </p>
+                <input
+                  type="date"
+                  aria-label="I-765 filing date"
+                  value={dates.ead_filed_date || ''}
+                  onChange={(e) => setDates((d) => ({ ...d, ead_filed_date: e.target.value }))}
+                  className="bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-1.5 text-body-md focus:outline-none focus:border-primary"
+                />
+              </>
+            )}
+          </div>
+        )}
       </div>
     )
   }

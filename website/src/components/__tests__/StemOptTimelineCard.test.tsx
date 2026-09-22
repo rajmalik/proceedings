@@ -6,6 +6,7 @@ import {
   totalDays,
   stemOptSummary,
   isStemOptTimeline,
+  stemOptCohortUrl,
   STEM_OPT_TIMELINE_FIELDS,
 } from '@/lib/stemOptTimeline'
 
@@ -43,6 +44,13 @@ describe('stemOptTimeline (lib)', () => {
     expect(isStemOptTimeline({ tags: ['EAD', 'stem-opt-extension'] })).toBe(true)
     expect(isStemOptTimeline({ tags: ['h1b-petition'] })).toBe(false)
     expect(isStemOptTimeline(null)).toBe(false)
+  })
+
+  it('stemOptCohortUrl builds the Timeline /find deep-link from ead_filed_date, else null', () => {
+    expect(stemOptCohortUrl({ ead_filed_date: '2026-03-18' }))
+      .toBe('/find?type=timeline&processing_type=EAD&eligibility=stem-opt-extension&filing_month=Mar&filing_year=2026')
+    expect(stemOptCohortUrl({})).toBeNull()
+    expect(stemOptCohortUrl({ ead_filed_date: 'March 2026' })).toBeNull()
   })
 })
 
@@ -118,11 +126,10 @@ describe('StemOptTimelineCard — shared capture component', () => {
   })
 })
 
-// Phase 3 — cross-link + Timeline-form reuse (still pending).
-describe('STEM OPT posting ⇄ cohort cross-link (bidirectional) [Phase 3]', () => {
-  it.todo('offers "join / create your EAD · stem-opt cohort" after a STEM OPT posting, linking to /find?type=timeline&…filing_month/year from ead_filed_date')
-  it.todo('prompts only for ead_filed_date at the bridge step when it is missing (rather than blocking the post)')
-  it.todo('never auto-joins — the cohort join/create is user-confirmed')
+// posting → cohort (Phase 3, DONE): the /post success-screen bridge is covered
+// in app/post/__tests__/page.test.tsx ("STEM OPT posting → cohort bridge") plus
+// the stemOptCohortUrl unit test above. The reverse direction remains:
+describe('STEM OPT cohort → posting (reverse cross-link) [Phase 3b]', () => {
   it.todo('from a stem-opt cohort membership, offers "Share as a posting" that prefills a post draft from the member attributes')
 })
 
