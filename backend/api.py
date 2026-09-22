@@ -139,6 +139,24 @@ def check_rate_limit(ip: str) -> bool:
     return True
 
 
+# AI-Assist anonymous cap (Q7/Q18): its own counter, keyed primarily on the
+# client session_id (IP is unreliable behind the Next.js BFF), then a sign-in
+# nudge. A soft cost/abuse guard, not a security control.
+_assist_anon_rate: dict[str, list[float]] = defaultdict(list)
+ASSIST_ANON_MAX = int(os.getenv("AI_ASSIST_ANON_LIMIT", "5"))
+ASSIST_ANON_WINDOW = int(os.getenv("AI_ASSIST_ANON_WINDOW_SECONDS", "3600"))
+
+
+def check_assist_anon_limit(key: str) -> bool:
+    now = time.time()
+    ts = _assist_anon_rate[key]
+    _assist_anon_rate[key] = [t for t in ts if now - t < ASSIST_ANON_WINDOW]
+    if len(_assist_anon_rate[key]) >= ASSIST_ANON_MAX:
+        return False
+    _assist_anon_rate[key].append(now)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Request / Response Models
 # ---------------------------------------------------------------------------
@@ -295,6 +313,7 @@ class SourceInfo(BaseModel):
     source: str
     labels: list[str]
     score: float
+    as_of: str = ""
 
 
 class AskResponse(BaseModel):
@@ -730,6 +749,71 @@ class ChatResponse(BaseModel):
     id: str = ""
 
 
+# --- AI Assist (conversational router) ---
+class AssistTurn(BaseModel):
+    role: str = "user"          # "user" | "ai"
+    content: str = ""
+    intent: str = ""            # the intent that produced an "ai" turn (echoed back)
+
+
+class AssistRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    history: list[AssistTurn] = []
+    session_id: str = ""        # client-generated; anon rate-limit + analytics key only
+    force_intent: str = ""      # "" | "post" | "timeline-find" (the A5 override)
+
+
+class AssistCitation(BaseModel):
+    source: str = ""
+    title: str = ""
+    as_of: str = ""
+
+
+class AssistCommunityCard(BaseModel):
+    case_id: str = ""
+    title: str = ""
+    snippet: str = ""
+    url: str = ""               # external permalink, or /case/{case_id}
+    channel: str = ""
+
+
+class AssistPostDraft(BaseModel):
+    title: str = ""
+    description: str = ""
+    groups: dict = {}
+    key_stages_or_info: dict[str, str] = {}
+    key_dates: dict[str, str] = {}
+
+
+class AssistTimeline(BaseModel):
+    status: str = ""            # "found" | "not_found" | "unresolved"
+    group_id: str = ""
+    group_name: str = ""
+    criteria: dict = {}
+    find_url: str = ""          # /find Timeline-mode deep-link, prefilled from criteria
+
+
+class AssistResponse(BaseModel):
+    intent: str
+    confidence: float = 0.0
+    answer: str = ""
+    source_tier: str = ""       # "gov" | "community" | "ungrounded" | ""
+    citations: list[AssistCitation] = []
+    community_cards: list[AssistCommunityCard] = []
+    clarify_questions: list[str] = []
+    post_draft: AssistPostDraft | None = None
+    timeline: AssistTimeline | None = None
+    find_url: str = ""
+    search_suggestions_html: str = ""   # web tier: Google Search-Suggestion chips (UI must render)
+    disclaimer: str = ""
+    can_post: bool = True
+    can_find_timeline: bool = False
+    can_find_similar: bool = False
+    rationale: str = ""
+    id: str = ""
+    turns_used: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -755,6 +839,24 @@ def _save(question: str, result: dict) -> str:
         return save_qa_pair(question, result, _db)
     except Exception as e:
         print(f"Warning: Could not save to Firestore: {e}")
+        return ""
+
+
+def _save_assist(question: str, result: dict) -> str:
+    """Log an AI-Assist turn to qa_pairs with the routing decision + grounding
+    tier (Q15). Sources come from the citations and community-card links."""
+    if not _db:
+        return ""
+    try:
+        chunks = [{"source": c.get("source", "")} for c in result.get("citations", [])]
+        chunks += [{"source": c.get("url", "")} for c in result.get("community_cards", [])]
+        payload = {"answer": result.get("answer", ""), "chunks": chunks,
+                   "is_fallback": result.get("is_fallback", False)}
+        return save_qa_pair(question, payload, _db,
+                            route=result.get("intent", ""),
+                            source_tier=result.get("source_tier", ""))
+    except Exception as e:
+        print(f"Warning: could not save assist qa: {e}")
         return ""
 
 
@@ -1035,10 +1137,20 @@ def create_posting(body: PostingCreateRequest, request: Request):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
 
     import posting
+    import profile
 
-    # Author (the publishing app user). Kept OUT of the posting itself / search
-    # datastore — only recorded in the Firestore posting↔author link below.
-    author_uid = _optional_user(request)
+    # Posting requires a signed-in user. A personal-case message additionally
+    # requires a set-up profile (a visa/status), but a general discussion/blog
+    # (tagged `discussion`/`blog`) is NOT tied to the author's own case, so it is
+    # exempt from that profile requirement. Author is kept OUT of the posting
+    # itself / search datastore — only recorded in the Firestore link below.
+    author_uid = _active_user(request)
+    is_discussion = bool({"discussion", "blog"} & set(body.tags.tags or []))
+    if not is_discussion:
+        _prof = _guard(lambda: profile.get_profile(_db, author_uid))
+        if not (_prof.get("current_visa_or_greencard_category") or _prof.get("visa_applying_for")):
+            raise HTTPException(status_code=422,
+                                detail="Set up your profile (add your visa/status) before posting a message.")
 
     try:
         result = _guard(lambda: posting.publish_posting(
@@ -1553,6 +1665,41 @@ def chat(body: ChatRequest, request: Request):
         suggested_filters=[SuggestedFilter(**g) for g in _suggest(body.question)],
         id=doc_id,
     )
+
+
+@app.post("/api/assist", response_model=AssistResponse)
+def assist_turn(body: AssistRequest, request: Request):
+    """AI-Assist conversational turn: the router (backend/assist.py) classifies the
+    turn and returns a grounded answer (gov->community->ungrounded), a /post draft,
+    an EAD/H-1B timeline group handoff, or clarifying questions. Anonymous users
+    may ask (F3); posting/finding a group still requires login on those pages."""
+    import assist as assist_mod
+
+    client_ip = request.client.host if request.client else "unknown"
+    uid = _optional_user(request)
+
+    # Anonymous -> session-keyed soft cap + sign-in nudge (Q7/Q18); authenticated
+    # -> the standard per-IP limiter.
+    turns_used = 0
+    if uid:
+        if not check_rate_limit(client_ip):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
+    else:
+        key = body.session_id or client_ip
+        if not check_assist_anon_limit(key):
+            raise HTTPException(status_code=429,
+                                detail="You've reached the guest limit — sign in to keep asking.")
+        turns_used = len(_assist_anon_rate[key])
+
+    history = [t.model_dump() for t in body.history][-8:]
+    result = _guard(lambda: assist_mod.handle_turn(
+        body.message, history,
+        force_intent=body.force_intent,
+        project_id=_project_id, location=_ds_location, engine_id=_engine_id, db=_db,
+    ))
+    result["id"] = _save_assist(body.message, result)
+    result["turns_used"] = turns_used
+    return AssistResponse(**result)
 
 
 @app.get("/api/qa", response_model=QAListResponse)
@@ -2161,6 +2308,19 @@ def gov_news_poll_route(request: Request, source: str = "", dry_run: bool = Fals
     _require_internal(request)
     from gov_news_poll import poll_all
     return {"results": poll_all(source_slug=source, dry_run=dry_run)}
+
+
+@app.post("/internal/official-reference/poll")
+def official_reference_poll_route(request: Request, dry_run: bool = False):
+    """Cloud Scheduler target — fetch the registered authoritative reference
+    pages (backend/official_reference_poll.py SOURCES) and upsert each into DS-1
+    (one stable doc per URL; unchanged pages are skipped via the content_hash
+    guardrail). NOT public: gated by _require_internal() on the same
+    X-Internal-Poll-Secret as the gov-news poll. `dry_run=true` fetches +
+    classifies without writing."""
+    _require_internal(request)
+    from official_reference_poll import poll_all
+    return {"results": poll_all(dry_run=dry_run)}
 
 
 # ---------------------------------------------------------------------------

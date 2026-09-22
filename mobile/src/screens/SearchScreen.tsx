@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Header, PostingCard, Skeleton, EmptyState, ErrorState, AnimatedListItem, FilterChip, AppText } from '../components';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing, borderRadius } from '../constants/theme';
+import { AI_ASSIST_ENABLED } from '../constants/flags';
+import { openAssist } from '../utils/assistLauncher';
 import {
   searchPostings,
   browsePostings,
@@ -216,6 +218,15 @@ export function SearchScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
+        {/* AI Assist launcher (flag-gated) — opens the global chat modal, which
+            also handles posting. Website parity: the Home "Ask AI/Post" entry. */}
+        {AI_ASSIST_ENABLED && (
+          <TouchableOpacity style={styles.askAiButton} onPress={openAssist} accessibilityLabel="Ask AI or post a question">
+            <Ionicons name="sparkles" size={16} color={colors.onPrimary} />
+            <Text style={styles.askAiText}>Ask AI / Post</Text>
+          </TouchableOpacity>
+        )}
+
         {/* The client's own record of active facets — always shown and
             removable, independent of whether the next `suggested` response
             happens to echo these same facets back (a facet that narrows
@@ -408,6 +419,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  askAiButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.base,
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.primary,
+  },
+  askAiText: { color: colors.onPrimary, fontWeight: '600', fontSize: 14 },
   postButton: {
     width: 36,
     height: 36,

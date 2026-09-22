@@ -9,6 +9,7 @@ import PostingCard, { type PostingCardData } from '@/components/PostingCard'
 import Markdown from '@/components/Markdown'
 import { AppliedFilters } from '@/components/StrictnessSlider'
 import SuggestedFilters, { facetId, type SuggestedFilterGroup } from '@/components/SuggestedFilters'
+import { openAssist } from '@/lib/assistLauncher'
 
 type QueryTag = { field: string; code: string; label: string }
 
@@ -307,18 +308,9 @@ export default function UnifiedSearch() {
     }
   }
 
-  // Persistent top-right Post action (both landing & results). Gated like the
-  // old TopAppBar button (Firebase user OR dev-mode picker). Collapses to "Post".
-  const postButton = canPost ? (
-    <Link
-      href="/post"
-      className="btn-primary rounded-full flex items-center gap-1.5 shrink-0 whitespace-nowrap"
-    >
-      <span className="material-symbols-outlined text-[20px]">edit_square</span>
-      <span className="hidden sm:inline">Post a new message</span>
-      <span className="sm:hidden">Post</span>
-    </Link>
-  ) : null
+  // The old top-right "Post a new message" button was removed — posting is now
+  // initiated from inside the AI Assist chatbot, which routes the user to /post
+  // when the conversation implies they want to post.
 
   // ---------------- RESULTS (3 panels) ----------------
   // Always this layout now — the default (browse) feed is auto-loaded on
@@ -345,12 +337,22 @@ export default function UnifiedSearch() {
           <span className="material-symbols-outlined text-[20px]">tune</span>
           <span className="hidden sm:inline">Advanced Search</span>
         </Link>
-        <div className="ml-auto">{postButton}</div>
+        {/* AI-Assist launcher — inline here on Home (the global bottom-right
+            launcher is suppressed on "/"; it opens the same one panel). */}
+        <button
+          type="button"
+          onClick={openAssist}
+          aria-label="Ask AI/Post"
+          className="btn-primary rounded-full flex items-center gap-1.5 shrink-0 whitespace-nowrap"
+        >
+          <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
+          <span className="hidden sm:inline">Ask AI/Post</span>
+        </button>
       </div>
 
       {error && <div className="card text-error mb-4">{error}</div>}
 
-      <div className={`grid gap-6 ${(!AI_MODE_ENABLED || aiCollapsed) ? 'lg:grid-cols-[15rem_1fr]' : 'lg:grid-cols-[15rem_1fr_24rem]'}`}>
+      <div className={`grid gap-6 ${(AI_MODE_ENABLED && !aiCollapsed) ? 'lg:grid-cols-[15rem_1fr_24rem]' : 'lg:grid-cols-[15rem_1fr]'}`}>
         {/* ===== LEFT — refine ===== */}
         <aside className="space-y-4">
           {/* The client's own record of what's currently filtering the
@@ -506,6 +508,7 @@ export default function UnifiedSearch() {
             </p>
           </aside>
         )}
+
       </div>
     </div>
   )

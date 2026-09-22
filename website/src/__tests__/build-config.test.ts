@@ -49,3 +49,16 @@ describe('Dockerfile bakes Firebase web config at build time', () => {
     })
   }
 })
+
+describe('Dockerfile bakes the AI Assist flag at build time', () => {
+  const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8')
+  const buildIndex = dockerfile.indexOf('RUN npm run build')
+
+  it('sets NEXT_PUBLIC_AI_ASSIST_ENABLED as ENV before npm run build', () => {
+    const v = 'NEXT_PUBLIC_AI_ASSIST_ENABLED'
+    const envSet = new RegExp(`ENV\\s+${v}=`).test(dockerfile) ||
+      new RegExp(`${v}=\\$${v}`).test(dockerfile)
+    expect(envSet, `${v} must be ENV-set in the build stage`).toBe(true)
+    expect(dockerfile.indexOf(v)).toBeLessThan(buildIndex)
+  })
+})

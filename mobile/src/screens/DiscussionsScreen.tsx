@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Header,
@@ -86,6 +87,15 @@ export function DiscussionsScreen({ navigation }: any) {
           <AppText variant="bodyMd" color="onSurfaceVariant" style={styles.pageSubtitle}>
             General immigration topics, shared articles, and how-to guides — not tied to one person's case.
           </AppText>
+          <TouchableOpacity
+            style={styles.startButton}
+            onPress={() => navigation.navigate('Post', { kind: 'discussion' })}
+          >
+            <Ionicons name="create-outline" size={18} color={colors.onPrimary} />
+            <AppText variant="labelMd" color="onPrimary">
+              Start a discussion
+            </AppText>
+          </TouchableOpacity>
         </View>
 
         {error ? <ErrorState body={error} onRetry={load} /> : null}
@@ -135,6 +145,17 @@ const styles = StyleSheet.create({
   },
   pageSubtitle: {
     marginTop: spacing.xs,
+  },
+  startButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.base,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.full,
   },
   results: { marginTop: spacing.md },
   loadMore: {

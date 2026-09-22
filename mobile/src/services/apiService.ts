@@ -176,6 +176,107 @@ export async function askQuestion(question: string): Promise<AskResponse> {
   return response.json();
 }
 
+// ============= AI Assist (POST /api/assist — the conversational assistant) ====
+// Same contract as the website's /api/assist. A single call returns an
+// AssistResponse whose `source_tier` + `can_*` flags drive the whole UI.
+
+export interface AssistCitation {
+  source: string;
+  title: string;
+  as_of: string;
+}
+export interface AssistCommunityCard {
+  case_id: string;
+  title: string;
+  snippet: string;
+  url: string;
+  channel: string;
+}
+export interface AssistPostDraft {
+  title: string;
+  description: string;
+  groups: PostingGroups;
+  key_stages_or_info: Record<string, string>;
+  key_dates: Record<string, string>;
+}
+export interface AssistTimeline {
+  status: string; // "found" | "not_found" | "unresolved"
+  group_id: string;
+  group_name: string;
+  criteria: unknown;
+  find_url: string; // /find?type=timeline&… deep-link, prefilled from criteria
+}
+export interface AssistResponse {
+  intent: string;
+  confidence: number;
+  answer: string;
+  source_tier: string; // "gov" | "community" | "web" | "ungrounded" | ""
+  citations: AssistCitation[];
+  community_cards: AssistCommunityCard[];
+  clarify_questions: string[];
+  post_draft: AssistPostDraft | null;
+  timeline: AssistTimeline | null;
+  find_url: string; // find-similar (/find?type=regular&…) deep-link
+  search_suggestions_html: string; // web tier: Google search-suggestion chips (HTML)
+  disclaimer: string;
+  can_post: boolean;
+  can_find_timeline: boolean;
+  can_find_similar: boolean;
+  rationale: string;
+  id: string;
+  turns_used: number;
+}
+export interface AssistHistoryTurn {
+  role: string;
+  content: string;
+  intent: string;
+}
+
+// A stable per-install session id — the anon rate-limit key the backend uses
+// (website parity: assistSession.ts). Cached after first read.
+let assistSessionId: string | null = null;
+export async function getAssistSessionId(): Promise<string> {
+  if (assistSessionId) return assistSessionId;
+  const fresh = () => `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    let id = await AsyncStorage.getItem('assistSessionId');
+    if (!id) {
+      id = fresh();
+      await AsyncStorage.setItem('assistSessionId', id);
+    }
+    assistSessionId = id;
+  } catch {
+    assistSessionId = fresh();
+  }
+  return assistSessionId;
+}
+
+/** One conversational turn. `forceIntent` re-runs the router for an affordance
+ *  (e.g. 'post', 'timeline-find'). Throws an Error carrying `.status` (429 on
+ *  the guest cap) so the UI can branch. */
+export async function assistTurn(
+  message: string,
+  history: AssistHistoryTurn[],
+  sessionId: string,
+  forceIntent = ''
+): Promise<AssistResponse> {
+  // Don't transmit the user's message to the AI backend without consent
+  // (App Store 5.1.1(i)/5.1.2(i)) — same gate as askQuestion/onboard.
+  assertAIConsent();
+  const response = await apiFetch(`${API_URL}/api/assist`, {
+    method: 'POST',
+    headers: userHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ message, history, session_id: sessionId, force_intent: forceIntent }),
+  });
+  const data = await safeJson(response);
+  if (!response.ok) {
+    const err = new Error(data.detail || 'Assist request failed') as Error & { status?: number };
+    err.status = response.status;
+    throw err;
+  }
+  return data as AssistResponse;
+}
+
 /**
  * Get recent Q&A history
  */
@@ -526,7 +627,9 @@ export async function createPosting(
 ): Promise<{ case_id: string; author_handle: string }> {
   const response = await apiFetch(`${API_URL}/api/postings`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // The backend requires a signed-in author (Bearer/X-User-Id); a personal-case
+    // post also needs a set-up profile, while a discussion/blog is exempt.
+    headers: userHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ title, description, tags, key_stages_or_info, key_dates, client_platform }),
   });
   const data = await safeJson(response);

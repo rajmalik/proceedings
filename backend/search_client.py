@@ -51,8 +51,13 @@ def _retry(fn, attempts: int = 3, base_delay: float = 0.5):
                 time.sleep(base_delay * (2 ** i))
     raise last
 
-# Fallback message when the datastore yields no grounded answer.
-FALLBACK_MESSAGE = "I don't have that information — please contact the firm directly."
+# Fallback message when the datastore yields no grounded answer. Self-service
+# product (not a firm intake): nudge the user to rephrase / browse, never imply
+# legal advice or a firm to contact.
+FALLBACK_MESSAGE = (
+    "I couldn't find a grounded answer to that in our sources. Try rephrasing your "
+    "question, or browse related community postings."
+)
 
 # Precedence boost (D-039): rank app posts above reddit above the rest. Disabled
 # by default until the `channel` facet + app-channel posts exist in the datastore
@@ -136,18 +141,28 @@ def _reference_to_chunk(ref) -> dict | None:
             "source": source,
             "labels": _labels_from(meta),
             "score": 0.0,  # structured refs carry no relevance score
+            "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     # Chunked content (advanced/website mode).
     ci = ref.chunk_info
     if ci and (ci.content or ci.chunk):
         dm = ci.document_metadata
         meta = _struct_to_dict(getattr(dm, "struct_data", {})) if dm else {}
+        cid = (getattr(dm, "document", "") or ci.chunk or "").split("/")[-1]
+        # Prefer the doc's real URL over the internal gs:// sidecar path so the
+        # citation is a usable link (official_reference/gov docs carry full_url).
+        uri = str(meta.get("full_url") or meta.get("source_uri") or getattr(dm, "uri", "") or "")
+        source = uri if (uri and not uri.startswith("gs://")) else \
+            str(meta.get("post_title") or getattr(dm, "title", "") or cid)
         return {
-            "chunk_id": (getattr(dm, "document", "") or ci.chunk or "").split("/")[-1],
+            "chunk_id": cid,
             "text": str(ci.content or "")[:500],
-            "source": str(getattr(dm, "uri", "") or getattr(dm, "title", "") or meta.get("post_title", "")),
+            "source": source,
             "labels": _labels_from(meta),
             "score": float(ci.relevance_score or 0.0),
+            "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     # Unstructured docs.
     udi = ref.unstructured_document_info
@@ -162,13 +177,28 @@ def _reference_to_chunk(ref) -> dict | None:
             "source": str(udi.uri or udi.title or udi.document.split("/")[-1]),
             "labels": _labels_from(meta),
             "score": 0.0,
+            "as_of": str(meta.get("posting_date") or ""),
+            "channel": str(meta.get("channel") or ""),
         }
     return None
 
 
-def answer_query(question: str, project_id: str, location: str, engine_id: str, max_results: int = 5) -> dict:
+def answer_query(question: str, project_id: str, location: str, engine_id: str,
+                 max_results: int = 5, filter_expr: str = "", preamble: str = "") -> dict:
     """
     Ground `question` against the Discovery Engine datastore via the Answer API.
+
+    `filter_expr`, when given, is a Discovery Engine filter applied to retrieval
+    (e.g. 'doc_kind: ANY("gov_news","official_reference")'). Filter only on
+    indexed/filterable fields such as `doc_kind` — never `channel` (unregistered
+    facet → 400). Empty string (default) preserves the pre-existing unfiltered
+    behavior for /api/ask and /api/chat.
+
+    `preamble`, when given, is a custom instruction added to the Answer API's
+    generation prompt (AnswerGenerationSpec.prompt_spec.preamble) — used to keep
+    grounded answers concise and honest (e.g. "answer only from the sources; if
+    the specific answer isn't there, say so rather than inferring"). Default ""
+    keeps the API's stock behavior for /api/ask and /api/chat.
 
     Returns the same dict shape as query() in query.py.
     """
@@ -180,22 +210,28 @@ def answer_query(question: str, project_id: str, location: str, engine_id: str, 
     boost = _boost_spec()
     if boost is not None:
         search_params.boost_spec = boost
+    if filter_expr:
+        search_params.filter = filter_expr
+
+    ans_spec = de.AnswerQueryRequest.AnswerGenerationSpec(
+        include_citations=True,
+        # Do NOT let the API skip queries via its adversarial / non-answer-
+        # seeking / low-relevance classifiers: they are non-deterministic and
+        # intermittently drop legitimate questions (e.g. imperative phrasings
+        # like "Tell me about ...") to 0 references. We ground purely on
+        # whether the datastore returned references (see below).
+        ignore_adversarial_query=False,
+        ignore_non_answer_seeking_query=False,
+        ignore_low_relevant_content=False,
+    )
+    if preamble:
+        ans_spec.prompt_spec = de.AnswerQueryRequest.AnswerGenerationSpec.PromptSpec(preamble=preamble)
 
     request = de.AnswerQueryRequest(
         serving_config=_serving_config(project_id, location, engine_id),
         query=de.Query(text=question),
         search_spec=de.AnswerQueryRequest.SearchSpec(search_params=search_params),
-        answer_generation_spec=de.AnswerQueryRequest.AnswerGenerationSpec(
-            include_citations=True,
-            # Do NOT let the API skip queries via its adversarial / non-answer-
-            # seeking / low-relevance classifiers: they are non-deterministic and
-            # intermittently drop legitimate questions (e.g. imperative phrasings
-            # like "Tell me about ...") to 0 references. We ground purely on
-            # whether the datastore returned references (see below).
-            ignore_adversarial_query=False,
-            ignore_non_answer_seeking_query=False,
-            ignore_low_relevant_content=False,
-        ),
+        answer_generation_spec=ans_spec,
         grounding_spec=de.AnswerQueryRequest.GroundingSpec(include_grounding_supports=True),
     )
 

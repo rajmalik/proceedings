@@ -93,3 +93,14 @@ describe('DiscussionsScreen', () => {
     expect(screen.getByText('Group chat for June PP delay')).toBeOnTheScreen();
   });
 });
+
+describe('DiscussionsScreen — create entry', () => {
+  it('"Start a discussion" navigates to the Post composer in discussion mode', async () => {
+    (searchPostings as jest.Mock).mockResolvedValue({ results: [], next_page_token: '', suggested_filters: [] });
+    const navigation = { navigate: jest.fn() };
+    const screen = await renderDiscussions(navigation);
+    await waitFor(() => expect(searchPostings).toHaveBeenCalled());
+    await fireEvent.press(screen.getByText('Start a discussion'));
+    expect(navigation.navigate).toHaveBeenCalledWith('Post', { kind: 'discussion' });
+  });
+});

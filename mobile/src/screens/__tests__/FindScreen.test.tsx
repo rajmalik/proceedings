@@ -21,8 +21,12 @@ import {
 const PREVIEW = { name: 'H-1B-change-of-status-COS-Mar-2026', description: 'Generated blurb.' };
 
 const mockNavigate = jest.fn();
+// Mutable so the AI-Assist deep-link tests can set timeline/regular params; the
+// arrow defers the read to render time.
+let mockRouteParams: Record<string, unknown> = {};
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
+  useRoute: () => ({ params: mockRouteParams }),
 }));
 
 jest.mock('../../services/apiService', () => {
@@ -190,6 +194,7 @@ const GROUP = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockNavigate.mockClear();
+  mockRouteParams = {};
   (loadActiveUser as jest.Mock).mockResolvedValue(undefined);
   (getActiveUserId as jest.Mock).mockReturnValue('demo-arjun');
   (getTagVocab as jest.Mock).mockResolvedValue(VOCAB);
@@ -911,5 +916,57 @@ describe('FindScreen — the period pair is labelled, and spans real filing year
     expect(s.getByText(String(y - 5))).toBeOnTheScreen();
     expect(s.getByText(String(y + 1))).toBeOnTheScreen();
     expect(s.queryByText(String(y - 6))).toBeNull();
+  });
+});
+
+// The AI-Assist timeline / find-similar handoffs deep-link into FindScreen with
+// route params (mirrors the website /find prefill). The panel must open on the
+// Find/Create tab with those criteria prefilled.
+describe('FindScreen — AI Assist deep-link prefill', () => {
+  it('timeline params open the Timeline panel with processing type + eligibility + month/year prefilled', async () => {
+    mockRouteParams = {
+      type: 'timeline', processing_type: 'EAD', eligibility: 'stem-opt-extension',
+      filing_month: 'Aug', filing_year: '2026',
+    };
+    const s = await renderScreen(
+      <SafeAreaProvider initialMetrics={TEST_METRICS}>
+        <FindScreen />
+      </SafeAreaProvider>
+    );
+    await waitFor(() => expect(getTagVocab).toHaveBeenCalled());
+    // Prefill (deferred until the vocab loads) reveals the Month/Year scope rows.
+    expect(await s.findByText('Month')).toBeOnTheScreen();
+    expect(s.getByText('Year')).toBeOnTheScreen();
+
+    await fireEvent.press(s.getByText('Search'));
+    await waitFor(() => expect(searchGroups).toHaveBeenCalled());
+    const [criteria] = (searchGroups as jest.Mock).mock.calls[0];
+    expect(criteria.tags).toEqual(['EAD', 'stem-opt-extension']);
+    expect(criteria.key_stages_or_info).toMatchObject({ filing_month: 'Aug', filing_year: '2026' });
+  });
+
+  it('regular params open the Regular panel with the situation text + visa prefilled', async () => {
+    mockRouteParams = { type: 'regular', q: 'H-1B folks at Mumbai', visa: 'H-1B' };
+    const s = await renderScreen(
+      <SafeAreaProvider initialMetrics={TEST_METRICS}>
+        <FindScreen />
+      </SafeAreaProvider>
+    );
+    await waitFor(() => expect(getTagVocab).toHaveBeenCalled());
+
+    await fireEvent.press(await s.findByText('Search'));
+    await waitFor(() => expect(searchGroups).toHaveBeenCalled());
+    const [criteria] = (searchGroups as jest.Mock).mock.calls[0];
+    expect(criteria.current_visa_or_greencard_category).toEqual(['H-1B']);
+  });
+
+  it('no deep-link params -> lands on the browse Groups tab, nothing prefilled', async () => {
+    const s = await renderScreen(
+      <SafeAreaProvider initialMetrics={TEST_METRICS}>
+        <FindScreen />
+      </SafeAreaProvider>
+    );
+    await waitFor(() => expect(getTagVocab).toHaveBeenCalled());
+    expect(s.queryByText('PROCESSING TYPE')).toBeNull();
   });
 });

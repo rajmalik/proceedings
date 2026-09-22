@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import PostingCardComponent, { type PostingCardData } from '@/components/PostingCard'
 import SuggestedFilters, { facetId, type SuggestedFilterGroup } from '@/components/SuggestedFilters'
 
@@ -78,11 +79,20 @@ export default function DiscussionsPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-margin-desktop py-8">
-      <div className="mb-6">
-        <h1 className="text-headline-lg text-primary mb-2">Discussions</h1>
-        <p className="text-body-md text-on-surface-variant">
-          General immigration topics, shared articles, and how-to guides — not tied to one person&apos;s case.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-headline-lg text-primary mb-2">Discussions</h1>
+          <p className="text-body-md text-on-surface-variant">
+            General immigration topics, shared articles, and how-to guides — not tied to one person&apos;s case.
+          </p>
+        </div>
+        <Link
+          href="/post?type=discussion"
+          className="btn-primary rounded-full flex items-center gap-1.5 shrink-0 whitespace-nowrap"
+        >
+          <span className="material-symbols-outlined text-[20px]">edit_square</span>
+          <span className="hidden sm:inline">Start a discussion</span>
+        </Link>
       </div>
 
       <form

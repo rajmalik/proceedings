@@ -1,6 +1,7 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import UnifiedSearch from '../UnifiedSearch'
+import { ASSIST_OPEN_EVENT } from '@/lib/assistLauncher'
 
 // (Vitest hoists vi.mock — only `mock`-prefixed vars may be referenced inside.)
 let mockSearchParam = ''
@@ -394,5 +395,19 @@ describe('UnifiedSearch — never sends Advanced Search\'s News/Cutoff params', 
     const facetCallUrl = fetchMock.mock.calls[1][0] as string
     expect(facetCallUrl).not.toContain('include_news')
     expect(facetCallUrl).not.toContain('max_age_days')
+  })
+})
+
+describe('UnifiedSearch — Ask AI/Post launcher (Home search row)', () => {
+  it('the inline "Ask AI/Post" button dispatches the assist-open event', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, json: async () => ({ results: [], total: 0, next_page_token: '', suggested_filters: [] }),
+    })))
+    const onOpen = vi.fn()
+    window.addEventListener(ASSIST_OPEN_EVENT, onOpen)
+    render(<UnifiedSearch />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask AI/Post' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    window.removeEventListener(ASSIST_OPEN_EVENT, onOpen)
   })
 })
