@@ -1139,18 +1139,27 @@ def create_posting(body: PostingCreateRequest, request: Request):
     import posting
     import profile
 
-    # Posting requires a signed-in user. A personal-case message additionally
-    # requires a set-up profile (a visa/status), but a general discussion/blog
-    # (tagged `discussion`/`blog`) is NOT tied to the author's own case, so it is
-    # exempt from that profile requirement. Author is kept OUT of the posting
-    # itself / search datastore — only recorded in the Firestore link below.
-    author_uid = _active_user(request)
-    is_discussion = bool({"discussion", "blog"} & set(body.tags.tags or []))
-    if not is_discussion:
-        _prof = _guard(lambda: profile.get_profile(_db, author_uid))
-        if not (_prof.get("current_visa_or_greencard_category") or _prof.get("visa_applying_for")):
-            raise HTTPException(status_code=422,
-                                detail="Set up your profile (add your visa/status) before posting a message.")
+    # A trusted offline/curated publish (the manual publish.sh) carries the
+    # internal secret and is NOT a signed-in user client — bypass the user +
+    # profile gates and record NO author link (curated/system content). This
+    # restores the pre-auth-hardening path for that trusted caller only; the
+    # public UI path stays locked down below.
+    #
+    # Otherwise: posting requires a signed-in user. A personal-case message
+    # additionally requires a set-up profile (a visa/status), but a general
+    # discussion/blog (tagged `discussion`/`blog`) is NOT tied to the author's
+    # own case, so it is exempt from that profile requirement. Author is kept OUT
+    # of the posting itself / search datastore — only in the Firestore link below.
+    if _is_internal_request(request):
+        author_uid = ""
+    else:
+        author_uid = _active_user(request)
+        is_discussion = bool({"discussion", "blog"} & set(body.tags.tags or []))
+        if not is_discussion:
+            _prof = _guard(lambda: profile.get_profile(_db, author_uid))
+            if not (_prof.get("current_visa_or_greencard_category") or _prof.get("visa_applying_for")):
+                raise HTTPException(status_code=422,
+                                    detail="Set up your profile (add your visa/status) before posting a message.")
 
     try:
         result = _guard(lambda: posting.publish_posting(
@@ -2296,6 +2305,17 @@ def _require_internal(request: Request) -> None:
     supplied = request.headers.get("x-internal-poll-secret", "")
     if not token or not _secrets.compare_digest(supplied, token):
         raise HTTPException(status_code=403, detail="Internal access required.")
+
+
+def _is_internal_request(request: Request) -> bool:
+    """Non-raising counterpart to _require_internal(): True when the request
+    carries the valid internal secret. Used to grant a trusted server-side
+    caller (e.g. the offline curated publish script) a bypass of the UI
+    signed-in-user gate, rather than to block. Never logs the secret."""
+    import secrets as _secrets
+    token = os.getenv("GOV_NEWS_POLL_SECRET", "")
+    supplied = request.headers.get("x-internal-poll-secret", "")
+    return bool(token) and _secrets.compare_digest(supplied, token)
 
 
 @app.post("/internal/gov-news/poll")
