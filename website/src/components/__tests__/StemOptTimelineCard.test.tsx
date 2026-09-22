@@ -7,6 +7,7 @@ import {
   stemOptSummary,
   isStemOptTimeline,
   stemOptCohortUrl,
+  stemOptBuckets,
   STEM_OPT_TIMELINE_FIELDS,
 } from '@/lib/stemOptTimeline'
 
@@ -51,6 +52,23 @@ describe('stemOptTimeline (lib)', () => {
       .toBe('/find?type=timeline&processing_type=EAD&eligibility=stem-opt-extension&filing_month=Mar&filing_year=2026')
     expect(stemOptCohortUrl({})).toBeNull()
     expect(stemOptCohortUrl({ ead_filed_date: 'March 2026' })).toBeNull()
+  })
+
+  it('stemOptBuckets splits a member value bag into key_dates/key_stages, dropping unknown keys', () => {
+    expect(
+      stemOptBuckets({
+        ead_filed_date: '2026-03-18',
+        ead_approved_date: '2026-09-17',
+        application_status: 'approved',
+        premium_processing: 'yes',
+        some_unknown_key: 'x', // not in the canonical schema → dropped
+      }),
+    ).toEqual({
+      key_dates: { ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' },
+      key_stages_or_info: { application_status: 'approved', premium_processing: 'yes' },
+    })
+    expect(stemOptBuckets({})).toEqual({ key_dates: {}, key_stages_or_info: {} })
+    expect(stemOptBuckets(null)).toEqual({ key_dates: {}, key_stages_or_info: {} })
   })
 })
 
@@ -126,14 +144,16 @@ describe('StemOptTimelineCard — shared capture component', () => {
   })
 })
 
-// posting → cohort (Phase 3, DONE): the /post success-screen bridge is covered
-// in app/post/__tests__/page.test.tsx ("STEM OPT posting → cohort bridge") plus
-// the stemOptCohortUrl unit test above. The reverse direction remains:
-describe('STEM OPT cohort → posting (reverse cross-link) [Phase 3b]', () => {
-  it.todo('from a stem-opt cohort membership, offers "Share as a posting" that prefills a post draft from the member attributes')
-})
+// Phase 3 cross-link — both directions DONE:
+//  • posting → cohort: /post success-screen bridge, covered in
+//    app/post/__tests__/page.test.tsx ("STEM OPT posting → cohort bridge")
+//    + the stemOptCohortUrl unit test above.
+//  • cohort → posting: the "Share your timeline as a posting" affordance on a
+//    stem-opt group, covered in app/groups/[id]/__tests__/page.test.tsx
+//    ("STEM OPT cohort → posting") + the stemOptBuckets unit test above.
 
-describe('StemOptTimelineCard — Timeline group form [Phase 3]', () => {
+// Deferred to a later pass — reuse the same card as the Timeline join form:
+describe('StemOptTimelineCard — Timeline group form [later]', () => {
   it.todo('renders as the join/attribute form for stem-opt-extension (same card as /post)')
   it.todo('optionally accepts pasted free-text timeline → tag-suggest → prefills the card')
 })

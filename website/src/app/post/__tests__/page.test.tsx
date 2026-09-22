@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import PostPage from '../page'
+import { writePostDraft } from '@/lib/assistDraft'
 
 // Active user = demo-arjun; userHeaders forwards it as X-User-Id (as the real lib does).
 // searchParams is mutable so discussion-mode tests can set ?type=discussion.
@@ -372,6 +373,25 @@ describe('PostPage — STEM OPT timeline card', () => {
       fireEvent.change(input, { target: { value: '2026-03-18' } })
       const link = (await screen.findByTestId('stem-opt-cohort-link')) as HTMLAnchorElement
       expect(link.getAttribute('href')).toContain('filing_month=Mar&filing_year=2026')
+    })
+
+    it('reads a cohort-sourced draft (reverse cross-link) and prefills the STEM OPT card', async () => {
+      try { sessionStorage.clear() } catch { /* ignore */ }
+      mockStemApi()  // supplies tag-vocab / reconcile / postings
+      writePostDraft(
+        {
+          title: '',
+          description: 'filed early',
+          groups: { ...EMPTY_GROUPS, visa_applying_for: ['F-1'], tags: ['stem-opt-extension'] },
+          key_stages_or_info: { application_status: 'approved' },
+          key_dates: { ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' },
+        },
+        'cohort',
+      )
+      render(<PostPage />)
+      expect(await screen.findByTestId('stem-opt-timeline-card')).toBeInTheDocument()
+      expect((screen.getByLabelText('Date applied (I-765 filed)') as HTMLInputElement).value).toBe('2026-03-18')
+      expect(screen.getByTestId('stem-opt-summary')).toHaveTextContent('Filed Mar 2026')
     })
 
     it('does NOT show the cohort bridge for a non-STEM-OPT posting', async () => {

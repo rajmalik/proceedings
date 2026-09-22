@@ -12,6 +12,8 @@ import { DEMO_PICKER_ENABLED, getActiveUser, userHeaders } from '@/lib/activeUse
 import { CHECKBOX_ON, requiredKeys, type PostJoinRow } from '@/lib/postJoinAttributes'
 import { loginHref, useRequireUser } from '@/lib/useRequireUser'
 import { useAuth } from '@/contexts/AuthContext'
+import { writePostDraft, type Groups as DraftGroups } from '@/lib/assistDraft'
+import { stemOptBuckets } from '@/lib/stemOptTimeline'
 
 type Criteria = {
   current_visa_or_greencard_category?: string[]
@@ -704,6 +706,33 @@ export default function GroupPage() {
                     Edit your {matchedType} attributes
                   </button>
                 )
+              )}
+              {/* STEM OPT cohort → posting (reverse cross-link,
+                  features/stem-opt-timeline-9/ Phase 3): a member can turn their
+                  own submitted timeline attributes into a shareable posting. It
+                  only prefills a /post draft (never auto-publishes) — the same
+                  hand-off the AI-Assist bridge uses. STEM OPT only for now. */}
+              {!group.needs_attributes && matchedType === 'stem-opt-extension' && myAttrs && (
+                <button
+                  data-testid="share-as-posting"
+                  onClick={() => {
+                    const { key_dates, key_stages_or_info } = stemOptBuckets(myAttrs.values || {})
+                    const c = group.criteria_tags
+                    const groups: DraftGroups = {
+                      visa_applying_for: c?.visa_applying_for || [],
+                      current_visa_or_greencard_category: c?.current_visa_or_greencard_category || [],
+                      primary_consulate: c?.primary_consulate || '',
+                      consulates: c?.consulates || [],
+                      tags: ['stem-opt-extension'],
+                      concerns_or_questions_tags: [],
+                    }
+                    writePostDraft({ title: '', description: myAttrs.notes || '', groups, key_stages_or_info, key_dates }, 'cohort')
+                    router.push('/post')
+                  }}
+                  className="text-label-md text-primary hover:underline self-start"
+                >
+                  Share your timeline as a posting
+                </button>
               )}
               {!group.needs_attributes && <GroupChat groupId={group.group_id} />}
             </div>

@@ -720,6 +720,73 @@ describe('GroupPage — editing your own attributes', () => {
   })
 })
 
+// STEM OPT cohort → posting (reverse cross-link, features/stem-opt-timeline-9/
+// Phase 3): a member can turn their own submitted timeline attributes into a
+// shareable /post draft. It only prefills the composer (never auto-publishes).
+describe('GroupPage — STEM OPT cohort → posting', () => {
+  beforeEach(() => { try { sessionStorage.clear() } catch { /* ignore */ } })
+
+  it('offers "Share your timeline as a posting" to a stem-opt member who has submitted', async () => {
+    mockTimelineGroup()
+    render(<GroupPage />)
+    await screen.findByTestId('group-chat')
+    expect(await screen.findByTestId('share-as-posting')).toBeInTheDocument()
+  })
+
+  it('stashes a cohort post-draft from the member attributes and navigates to /post', async () => {
+    mockTimelineGroup([
+      {
+        user_id: 'demo-arjun', username: 'arjun-h1b', processing_type: 'stem-opt-extension',
+        values: { ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17', application_status: 'approved' },
+        notes: 'filed early',
+      },
+    ])
+    render(<GroupPage />)
+    await screen.findByTestId('group-chat')
+
+    fireEvent.click(await screen.findByTestId('share-as-posting'))
+
+    expect(mockPush).toHaveBeenCalledWith('/post')
+    const draft = JSON.parse(sessionStorage.getItem('aiAssist.postDraft.v1') || '{}')
+    expect(draft.source).toBe('cohort')
+    expect(draft.groups.tags).toEqual(['stem-opt-extension'])
+    expect(draft.key_dates).toEqual({ ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' })
+    expect(draft.key_stages_or_info).toEqual({ application_status: 'approved' })
+    expect(draft.description).toBe('filed early')
+  })
+
+  it('does NOT offer the share affordance on a non-STEM-OPT timeline group', async () => {
+    // Same member/attrs shape, but the group's processing type is h4-ead.
+    global.fetch = vi.fn(async (url: string, opts?: RequestInit) => {
+      if (String(url).includes('/api/tag-vocab')) {
+        return { ok: true, status: 200, json: async () => ({ post_join_attribute_templates: {
+          'h4-ead': [{ label: 'Date Applied', field: 'key_dates', key: 'ead_filed_date' }],
+        } }) } as Response
+      }
+      if (String(url).includes('/invitations')) return { ok: true, status: 200, json: async () => ({ invitations: [] }) } as Response
+      if (String(url).includes('/attributes')) {
+        return { ok: true, status: 200, json: async () => ({ attributes: [
+          { user_id: 'demo-arjun', username: 'arjun-h1b', processing_type: 'h4-ead', values: { ead_filed_date: '2026-03-18' }, notes: '' },
+        ] }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => ({
+        ...BASE_GROUP, group_type: 'timeline', criteria_tags: { tags: ['h4-ead'] }, needs_attributes: false,
+      }) } as Response
+    }) as unknown as typeof fetch
+
+    render(<GroupPage />)
+    await screen.findByTestId('group-chat')
+    expect(screen.queryByTestId('share-as-posting')).toBeNull()
+  })
+
+  it('offers no share affordance to a stem-opt member who has not submitted', async () => {
+    mockTimelineGroup([])
+    render(<GroupPage />)
+    await screen.findByTestId('group-chat')
+    expect(screen.queryByTestId('share-as-posting')).toBeNull()
+  })
+})
+
 describe('GroupPage — Leave Group (any member)', () => {
   it('shows a Leave group affordance for a non-admin member', async () => {
     mockGroup({ is_admin: false })

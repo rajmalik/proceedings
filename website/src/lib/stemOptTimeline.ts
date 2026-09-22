@@ -76,6 +76,24 @@ export function isStemOptTimeline(groups: { tags?: string[] } | null | undefined
   return !!groups?.tags?.includes('stem-opt-extension')
 }
 
+/** Split a flat stem-opt attribute map (as a cohort member stores it under one
+ *  `values` bag) back into the posting's key_dates / key_stages_or_info buckets,
+ *  per the canonical field schema. Unknown keys are dropped — never guessed into
+ *  a bucket. Used by the cohort → posting (reverse) cross-link. */
+export function stemOptBuckets(
+  values: Record<string, string> | null | undefined,
+): { key_dates: Record<string, string>; key_stages_or_info: Record<string, string> } {
+  const key_dates: Record<string, string> = {}
+  const key_stages_or_info: Record<string, string> = {}
+  for (const f of STEM_OPT_TIMELINE_FIELDS) {
+    const v = values?.[f.key]
+    if (!v) continue
+    if (f.bucket === 'key_dates') key_dates[f.key] = v
+    else key_stages_or_info[f.key] = v
+  }
+  return { key_dates, key_stages_or_info }
+}
+
 /** The Timeline-mode /find deep-link for this posting's EAD·stem-opt cohort,
  *  derived from ead_filed_date. Null when the filed date is missing/invalid
  *  (the caller then asks for just that date). FindScreen reads these params. */
