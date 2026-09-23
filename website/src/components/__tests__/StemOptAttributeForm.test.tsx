@@ -89,6 +89,62 @@ describe('StemOptAttributeForm', () => {
     await waitFor(() => expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent('No timeline fields found'))
   })
 
+  it('surfaces the server error message when the extract request is not ok', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: false, status: 500, json: async () => ({ detail: 'model unavailable' }),
+    })) as unknown as typeof fetch
+
+    const spy = vi.fn()
+    render(<Harness onChangeSpy={spy} />)
+    fireEvent.change(screen.getByTestId('stem-opt-paste'), { target: { value: 'some timeline' } })
+    fireEvent.click(screen.getByTestId('stem-opt-extract'))
+    await waitFor(() => expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent('model unavailable'))
+    // a failed extract never mutates the fields
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a generic message when the extract request throws', async () => {
+    global.fetch = vi.fn(async () => {
+      throw new Error('network down')
+    }) as unknown as typeof fetch
+
+    render(<Harness />)
+    fireEvent.change(screen.getByTestId('stem-opt-paste'), { target: { value: 'some timeline' } })
+    fireEvent.click(screen.getByTestId('stem-opt-extract'))
+    await waitFor(() => expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent('network down'))
+  })
+
+  it('reports a single filled field and tolerates a missing key_stages bucket', async () => {
+    // Response omits key_stages_or_info entirely → exercises the `|| {}` guard.
+    global.fetch = vi.fn(async () => ({
+      ok: true, status: 200, json: async () => ({ key_dates: { ead_filed_date: '2026-03-18' } }),
+    })) as unknown as typeof fetch
+
+    render(<Harness />)
+    fireEvent.change(screen.getByTestId('stem-opt-paste'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByTestId('stem-opt-extract'))
+    await waitFor(() => expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent(/Filled 1 field —/))
+  })
+
+  it('uses the generic fallback when the failed response carries no detail', async () => {
+    global.fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })) as unknown as typeof fetch
+
+    render(<Harness />)
+    fireEvent.change(screen.getByTestId('stem-opt-paste'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByTestId('stem-opt-extract'))
+    await waitFor(() => expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent('Could not read that timeline'))
+  })
+
+  it('uses the generic fallback when a non-Error value is thrown', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-throw-literal
+    global.fetch = vi.fn(async () => { throw 'weird' }) as unknown as typeof fetch
+
+    render(<Harness />)
+    fireEvent.change(screen.getByTestId('stem-opt-paste'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByTestId('stem-opt-extract'))
+    await waitFor(() => expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent('Could not read that timeline'))
+  })
+
   it('disables the extract button until something is pasted', () => {
     render(<Harness />)
     expect(screen.getByTestId('stem-opt-extract')).toBeDisabled()

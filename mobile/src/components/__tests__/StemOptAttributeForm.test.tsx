@@ -84,4 +84,25 @@ describe('StemOptAttributeForm (mobile)', () => {
       expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent(/No timeline fields found/),
     );
   });
+
+  it('surfaces an error message when the extract request fails, without mutating fields', async () => {
+    (suggestTags as jest.Mock).mockRejectedValue(new Error('network down'));
+    const spy = jest.fn();
+    const screen = await renderScreen(<Harness onChangeSpy={spy} />);
+    await fireEvent.changeText(screen.getByTestId('stem-opt-paste'), 'some timeline');
+    await fireEvent.press(screen.getByTestId('stem-opt-extract'));
+    await waitFor(() =>
+      expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent(/Could not read that timeline/),
+    );
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('reports a single filled field and tolerates a missing key_stages bucket', async () => {
+    // Response omits key_stages_or_info entirely → exercises the `|| {}` guard.
+    (suggestTags as jest.Mock).mockResolvedValue({ key_dates: { ead_filed_date: '2026-03-18' } });
+    const screen = await renderScreen(<Harness />);
+    await fireEvent.changeText(screen.getByTestId('stem-opt-paste'), 'x');
+    await fireEvent.press(screen.getByTestId('stem-opt-extract'));
+    await waitFor(() => expect(screen.getByTestId('stem-opt-paste-msg')).toHaveTextContent(/Filled 1 field —/));
+  });
 });

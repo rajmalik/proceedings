@@ -164,6 +164,21 @@ describe('StemOptTimelineCard — shared capture component', () => {
     expect(onChange).toHaveBeenLastCalledWith({}, { premium_processing: 'yes' })
   })
 
+  it('clearing a prefilled field removes it from the bucket (never keeps a blank)', () => {
+    const onChange = vi.fn()
+    render(<StemOptTimelineCard keyDates={{ ead_filed_date: '2026-03-18' }} keyStages={{}} onChange={onChange} />)
+    // clearing the date deletes the key rather than storing ''
+    fireEvent.change(screen.getByLabelText('Date applied (I-765 filed)'), { target: { value: '' } })
+    expect(onChange).toHaveBeenLastCalledWith({}, {})
+  })
+
+  it('unchecking a checkbox removes its stage key', () => {
+    const onChange = vi.fn()
+    render(<StemOptTimelineCard keyDates={{}} keyStages={{ premium_processing: 'yes' }} onChange={onChange} />)
+    fireEvent.click(screen.getByLabelText('Premium processing'))
+    expect(onChange).toHaveBeenLastCalledWith({}, {})
+  })
+
   it('keeps status/service-center within their vocab options', () => {
     render(<StemOptTimelineCard keyDates={{}} keyStages={{}} onChange={noop} />)
     const status = screen.getByLabelText('Status') as HTMLSelectElement

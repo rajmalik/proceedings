@@ -86,4 +86,22 @@ describe('StemOptTimelineCard (mobile)', () => {
     fireEvent.press(screen.getByLabelText('Premium processing'));
     expect(onChange).toHaveBeenLastCalledWith({}, { premium_processing: 'yes' });
   });
+
+  it('clearing a prefilled date removes it from the bucket (never keeps a blank)', async () => {
+    const onChange = jest.fn();
+    const screen = await renderScreen(
+      <StemOptTimelineCard keyDates={{ ead_filed_date: '2026-03-18' }} keyStages={{}} onChange={onChange} />,
+    );
+    fireEvent.changeText(screen.getByLabelText('Date applied (I-765 filed)'), '');
+    expect(onChange).toHaveBeenLastCalledWith({}, {});
+  });
+
+  it('unchecking a checkbox removes its stage key', async () => {
+    const onChange = jest.fn();
+    const screen = await renderScreen(
+      <StemOptTimelineCard keyDates={{}} keyStages={{ premium_processing: 'yes' }} onChange={onChange} />,
+    );
+    fireEvent.press(screen.getByLabelText('Premium processing'));
+    expect(onChange).toHaveBeenLastCalledWith({}, {});
+  });
 });

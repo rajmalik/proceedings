@@ -57,4 +57,27 @@ describe('assistDraft sessionStorage contract', () => {
     sessionStorage.setItem(POST_DRAFT_KEY, JSON.stringify({ title: 'x', source: 'other' }))
     expect(readAndClearPostDraft()).toBeNull()
   })
+
+  // Phase 3b — the cohort → posting reverse cross-link stamps source:'cohort'.
+  it('round-trips a cohort-sourced draft (the reverse cross-link)', () => {
+    writePostDraft(base, 'cohort')
+    const d = readAndClearPostDraft()
+    expect(d).toBeTruthy()
+    expect(d!.source).toBe('cohort')
+    expect(d!.key_dates).toEqual({ c: 'd' })
+  })
+
+  it('never throws when sessionStorage is unavailable (write is best-effort)', () => {
+    const orig = Object.getOwnPropertyDescriptor(window, 'sessionStorage')
+    // Simulate private-mode / blocked storage: setItem throws.
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      value: { setItem: () => { throw new Error('blocked') }, getItem: () => null, removeItem: () => {} },
+    })
+    try {
+      expect(() => writePostDraft(base, 'cohort')).not.toThrow()
+    } finally {
+      if (orig) Object.defineProperty(window, 'sessionStorage', orig)
+    }
+  })
 })
