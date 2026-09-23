@@ -668,6 +668,48 @@ describe('GroupChatScreen — member attributes moved out of the sidebar', () =>
     await openMembersModal(screen);
     expect(screen.queryByText('Edit your attributes')).toBeNull();
   });
+
+  // STEM OPT cohort → posting (reverse cross-link, Phase 4b): a member can turn
+  // their own submitted timeline attributes into a shareable /post draft.
+  it('lets a stem-opt member share their timeline as a posting (prefilled draft)', async () => {
+    (getGroup as jest.Mock).mockResolvedValue(TIMELINE);
+    (getMemberAttributes as jest.Mock).mockResolvedValue({ attributes: [ARJUN_ATTRS] });
+    const screen = await renderScreen(<GroupChatScreen />);
+    await openMembersModal(screen);
+
+    await fireEvent.press(await screen.findByTestId('share-as-posting'));
+    expect(mockNavigate).toHaveBeenCalledWith('Home', {
+      screen: 'Post',
+      params: {
+        assistDraft: expect.objectContaining({
+          description: 'filed early',
+          key_dates: { ead_filed_date: '2026-03-01' },
+          key_stages_or_info: {},
+          groups: expect.objectContaining({ tags: ['stem-opt-extension'] }),
+        }),
+      },
+    });
+  });
+
+  it('offers no share affordance to a member who has submitted nothing', async () => {
+    (getGroup as jest.Mock).mockResolvedValue(TIMELINE);
+    (getMemberAttributes as jest.Mock).mockResolvedValue({ attributes: [] });
+    const screen = await renderScreen(<GroupChatScreen />);
+    await openMembersModal(screen);
+    expect(screen.queryByTestId('share-as-posting')).toBeNull();
+  });
+
+  it('offers no share affordance on a non-STEM-OPT timeline group', async () => {
+    (getGroup as jest.Mock).mockResolvedValue({
+      ...TIMELINE, criteria_tags: { current_visa_or_greencard_category: ['H-1B'] },
+    });
+    (getMemberAttributes as jest.Mock).mockResolvedValue({
+      attributes: [{ ...ARJUN_ATTRS, processing_type: 'h1b-extension' }],
+    });
+    const screen = await renderScreen(<GroupChatScreen />);
+    await openMembersModal(screen);
+    expect(screen.queryByTestId('share-as-posting')).toBeNull();
+  });
 });
 
 describe('GroupChatScreen — Timeline rename lock', () => {

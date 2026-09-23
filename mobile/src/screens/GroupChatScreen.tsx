@@ -43,6 +43,7 @@ import {
   PostJoinAttributeRow,
   TagVocab,
 } from '../services/apiService';
+import { stemOptBuckets } from '../lib/stemOptTimeline';
 
 // Matches the website's find/page.tsx and backend/api.py's APP_BASE_URL
 // default — the public route a shared group link resolves to.
@@ -825,6 +826,40 @@ export function GroupChatScreen() {
                   >
                     <AppText variant="labelMd" color="primary">Edit your attributes</AppText>
                     <Ionicons name="create-outline" size={18} color={colors.primary} />
+                  </TouchableOpacity>
+                )}
+                {/* STEM OPT cohort → posting (reverse cross-link,
+                    features/stem-opt-timeline-9/ Phase 4b): turn your own
+                    submitted timeline attributes into a shareable /post draft.
+                    Prefill only (never auto-publishes) — hands off through the
+                    same assistDraft nav param the AI-Assist bridge uses. */}
+                {matchedType === 'stem-opt-extension' && !!myAttrs && (
+                  <TouchableOpacity
+                    style={styles.viewAllAttrsRow}
+                    testID="share-as-posting"
+                    onPress={() => {
+                      const { key_dates, key_stages_or_info } = stemOptBuckets(myAttrs.values || {});
+                      const c = group?.criteria_tags;
+                      const draft = {
+                        title: '',
+                        description: myAttrs.notes || '',
+                        groups: {
+                          visa_applying_for: c?.visa_applying_for || [],
+                          current_visa_or_greencard_category: c?.current_visa_or_greencard_category || [],
+                          primary_consulate: c?.primary_consulate || '',
+                          consulates: c?.consulates || [],
+                          tags: ['stem-opt-extension'],
+                          concerns_or_questions_tags: [],
+                        },
+                        key_stages_or_info,
+                        key_dates,
+                      };
+                      setShowMembersModal(false);
+                      navigation.navigate('Home', { screen: 'Post', params: { assistDraft: draft } });
+                    }}
+                  >
+                    <AppText variant="labelMd" color="primary">Share your timeline as a posting</AppText>
+                    <Ionicons name="share-outline" size={18} color={colors.primary} />
                   </TouchableOpacity>
                 )}
               </>
