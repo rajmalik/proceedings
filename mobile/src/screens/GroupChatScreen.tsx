@@ -18,7 +18,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '../constants/theme';
-import { GroupChat, MatchCard, AppText, Badge, AuthorCard } from '../components';
+import { GroupChat, MatchCard, AppText, Badge, AuthorCard, StemOptAttributeForm } from '../components';
 import {
   getGroup,
   leaveGroup,
@@ -43,6 +43,7 @@ import {
   PostJoinAttributeRow,
   TagVocab,
 } from '../services/apiService';
+import { stemOptBuckets } from '../lib/stemOptTimeline';
 
 // Matches the website's find/page.tsx and backend/api.py's APP_BASE_URL
 // default — the public route a shared group link resolves to.
@@ -325,6 +326,33 @@ export function GroupChatScreen() {
   const templateRows: PostJoinRow[] = matchedType && vocab ? vocab.post_join_attribute_templates[matchedType] || [] : [];
   const required = requiredAttributeKeys(templateRows);
 
+  // The attribute-capture form for the join / gate / edit sites. A STEM OPT
+  // cohort uses the SAME structured card as PostScreen (with a paste-to-extract
+  // on-ramp); every other timeline type keeps the generic row-by-row form.
+  const renderAttrForm = (
+    values: Record<string, string>,
+    setValues: React.Dispatch<React.SetStateAction<Record<string, string>>>,
+    formNotes: string,
+    setFormNotes: (v: string) => void,
+  ) =>
+    matchedType === 'stem-opt-extension' ? (
+      <StemOptAttributeForm
+        values={values}
+        onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+        notes={formNotes}
+        onNotesChange={setFormNotes}
+      />
+    ) : (
+      <AttributeForm
+        rows={templateRows}
+        values={values}
+        onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+        notes={formNotes}
+        onNotesChange={setFormNotes}
+        required={required}
+      />
+    );
+
   const submitGateAttrs = async () => {
     setSavingGate(true);
     try {
@@ -568,9 +596,7 @@ export function GroupChatScreen() {
                       ? 'Required to join — shared with the rest of the cohort.'
                       : 'Optional — shared with the rest of the cohort. You can fill these in later.'}
                   </AppText>
-                  <AttributeForm rows={templateRows} values={joinValues}
-                    onChange={(k, v) => setJoinValues((prev) => ({ ...prev, [k]: v }))}
-                    notes={joinNotes} onNotesChange={setJoinNotes} required={required} />
+                  {renderAttrForm(joinValues, setJoinValues, joinNotes, setJoinNotes)}
                 </View>
               )}
               <TouchableOpacity
@@ -643,9 +669,7 @@ export function GroupChatScreen() {
                 ? 'Required to access this group — shared with the rest of the cohort.'
                 : 'Optional — shared with the rest of the cohort. Save to continue, and add them any time.'}
             </AppText>
-            <AttributeForm rows={templateRows} values={gateValues}
-              onChange={(k, v) => setGateValues((prev) => ({ ...prev, [k]: v }))}
-              notes={gateNotes} onNotesChange={setGateNotes} required={required} />
+            {renderAttrForm(gateValues, setGateValues, gateNotes, setGateNotes)}
             <View style={styles.postJoinActions}>
               <TouchableOpacity
                 onPress={submitGateAttrs}
@@ -665,9 +689,7 @@ export function GroupChatScreen() {
             <AppText variant="caption" color="onSurfaceVariant" style={styles.postJoinHint}>
               Shared with the rest of the cohort.
             </AppText>
-            <AttributeForm rows={templateRows} values={gateValues}
-              onChange={(k, v) => setGateValues((prev) => ({ ...prev, [k]: v }))}
-              notes={gateNotes} onNotesChange={setGateNotes} required={required} />
+            {renderAttrForm(gateValues, setGateValues, gateNotes, setGateNotes)}
             <View style={styles.postJoinActions}>
               <TouchableOpacity
                 onPress={async () => { await submitGateAttrs(); setEditingAttrs(false); }}
@@ -825,6 +847,40 @@ export function GroupChatScreen() {
                   >
                     <AppText variant="labelMd" color="primary">Edit your attributes</AppText>
                     <Ionicons name="create-outline" size={18} color={colors.primary} />
+                  </TouchableOpacity>
+                )}
+                {/* STEM OPT cohort → posting (reverse cross-link,
+                    features/stem-opt-timeline-9/ Phase 4b): turn your own
+                    submitted timeline attributes into a shareable /post draft.
+                    Prefill only (never auto-publishes) — hands off through the
+                    same assistDraft nav param the AI-Assist bridge uses. */}
+                {matchedType === 'stem-opt-extension' && !!myAttrs && (
+                  <TouchableOpacity
+                    style={styles.viewAllAttrsRow}
+                    testID="share-as-posting"
+                    onPress={() => {
+                      const { key_dates, key_stages_or_info } = stemOptBuckets(myAttrs.values || {});
+                      const c = group?.criteria_tags;
+                      const draft = {
+                        title: '',
+                        description: myAttrs.notes || '',
+                        groups: {
+                          visa_applying_for: c?.visa_applying_for || [],
+                          current_visa_or_greencard_category: c?.current_visa_or_greencard_category || [],
+                          primary_consulate: c?.primary_consulate || '',
+                          consulates: c?.consulates || [],
+                          tags: ['stem-opt-extension'],
+                          concerns_or_questions_tags: [],
+                        },
+                        key_stages_or_info,
+                        key_dates,
+                      };
+                      setShowMembersModal(false);
+                      navigation.navigate('Home', { screen: 'Post', params: { assistDraft: draft } });
+                    }}
+                  >
+                    <AppText variant="labelMd" color="primary">Share your timeline as a posting</AppText>
+                    <Ionicons name="share-outline" size={18} color={colors.primary} />
                   </TouchableOpacity>
                 )}
               </>

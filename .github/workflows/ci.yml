@@ -84,6 +84,7 @@ jobs:
           python tests/test_assist_hardening.py
           python tests/test_assist_routing_edges.py
           python tests/test_assist_websearch.py
+          python tests/test_stem_opt_timeline.py
 
   website:
     needs: changes

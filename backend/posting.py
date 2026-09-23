@@ -1017,6 +1017,25 @@ def _clean_dates(value) -> dict:
     return out
 
 
+_MONTH_ABBREV = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def filing_period(ead_filed_date) -> dict:
+    """Derive the Timeline cohort key {filing_month, filing_year} from an ISO
+    (YYYY-MM-DD) filed date — the STEM OPT posting -> cohort cross-link needs the
+    month/year a `stem-opt-extension` cohort is bucketed by. Empty / malformed /
+    out-of-range input returns {} (the caller then asks the user for the date).
+    See features/stem-opt-timeline-9/."""
+    sv = str(ead_filed_date or "").strip()
+    if not _DATE_RE.match(sv):
+        return {}
+    year, month, day = (int(p) for p in sv.split("-"))
+    if not (1 <= month <= 12) or not (1 <= day <= 31):
+        return {}
+    return {"filing_month": _MONTH_ABBREV[month - 1], "filing_year": str(year)}
+
+
 def _add_tag_once(groups: dict, tag: str) -> None:
     """Append `tag` to groups['tags'] unless it's already there OR already in
     concerns_or_questions_tags. validate() rejects a tag appearing in more

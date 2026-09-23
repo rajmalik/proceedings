@@ -20,8 +20,9 @@ function renderPostScreen() {
 // Mutable so discussion-mode tests can set { kind: 'discussion' }; the arrow
 // defers the read to render time, so a per-test assignment takes effect.
 let mockRouteParams: Record<string, unknown> = {};
+const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }),
+  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn() }),
   useRoute: () => ({ params: mockRouteParams }),
 }));
 
@@ -205,5 +206,79 @@ describe('PostScreen — AI Assist draft handoff (assistDraft param)', () => {
     // The drafted visa tag is prefilled -> Submit is enabled (has a visa).
     expect(screen.getByText('H-1B')).toBeOnTheScreen();
     expect(screen.queryByText(/Add at least one visa\/status/i)).toBeNull();
+  });
+});
+
+// STEM OPT unified timeline (features/stem-opt-timeline-9/, Phase 4 — mobile
+// parity): a stem-opt-extension posting captures its milestones through the
+// shared structured card (in place of the generic stage/date rows), and after
+// publishing offers the matching EAD·stem-opt Timeline cohort deep-link.
+describe('PostScreen — STEM OPT timeline (Phase 4 mobile parity)', () => {
+  beforeEach(() => { jest.clearAllMocks(); mockRouteParams = {}; });
+
+  function mockStemSuggest(keyDates: Record<string, string> = { ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' }) {
+    (suggestTags as jest.Mock).mockResolvedValue({
+      groups: { ...EMPTY_GROUPS, visa_applying_for: ['F-1'], tags: ['stem-opt-extension'] },
+      key_stages_or_info: { application_status: 'approved' },
+      key_dates: keyDates,
+      relevant_sections: ['visa_applying_for'],
+      posting_type: 'in_us_status',
+    });
+  }
+
+  async function previewStem(
+    screen: Awaited<ReturnType<typeof renderScreen>>,
+    keyDates?: Record<string, string>,
+  ) {
+    mockStemSuggest(keyDates);
+    await fireEvent.changeText(screen.getByPlaceholderText(/H-1B extension with an RFE/), 'STEM OPT approved after 190 days');
+    await fireEvent.changeText(
+      screen.getByPlaceholderText(/Describe your situation/),
+      'Filed my I-765 for the STEM OPT extension on 2026-03-18, approved 2026-09-17.'
+    );
+    await fireEvent.press(screen.getByText('Preview'));
+    await screen.findByText('Review Tags');
+  }
+
+  it('shows the structured timeline card and hides the generic key-date rows', async () => {
+    const screen = await renderPostScreen();
+    await previewStem(screen);
+    expect(screen.getByTestId('stem-opt-timeline-card')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Date applied (I-765 filed)').props.value).toBe('2026-03-18');
+    // the generic "Key dates" section is replaced by the card
+    expect(screen.queryByText('Key dates')).toBeNull();
+  });
+
+  it('does NOT show the card for a non-STEM-OPT posting', async () => {
+    const screen = await renderPostScreen();
+    await previewWith(screen, { visa_applying_for: ['H-1B'], tags: ['h1b-extension'] });
+    expect(screen.queryByTestId('stem-opt-timeline-card')).toBeNull();
+  });
+
+  it('after publishing, deep-links to the EAD·stem-opt cohort from the filed date', async () => {
+    const screen = await renderPostScreen();
+    await previewStem(screen);
+    await fireEvent.press(screen.getByText('Submit Posting'));
+    await screen.findByText('Posted!');
+
+    await fireEvent.press(screen.getByTestId('stem-opt-cohort-link'));
+    expect(mockNavigate).toHaveBeenCalledWith('Find', {
+      screen: 'FindMain',
+      params: {
+        type: 'timeline', processing_type: 'EAD', eligibility: 'stem-opt-extension',
+        filing_month: 'Mar', filing_year: '2026',
+      },
+    });
+  });
+
+  it('prompts for the filing date when not parsed, then reveals the cohort link', async () => {
+    const screen = await renderPostScreen();
+    await previewStem(screen, {}); // no ead_filed_date parsed
+    await fireEvent.press(screen.getByText('Submit Posting'));
+    await screen.findByText('Posted!');
+
+    expect(screen.queryByTestId('stem-opt-cohort-link')).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText('I-765 filing date'), '2026-03-18');
+    expect(await screen.findByTestId('stem-opt-cohort-link')).toBeOnTheScreen();
   });
 });

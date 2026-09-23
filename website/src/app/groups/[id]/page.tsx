@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import GroupChat from '@/components/GroupChat'
@@ -12,6 +12,9 @@ import { DEMO_PICKER_ENABLED, getActiveUser, userHeaders } from '@/lib/activeUse
 import { CHECKBOX_ON, requiredKeys, type PostJoinRow } from '@/lib/postJoinAttributes'
 import { loginHref, useRequireUser } from '@/lib/useRequireUser'
 import { useAuth } from '@/contexts/AuthContext'
+import { writePostDraft, type Groups as DraftGroups } from '@/lib/assistDraft'
+import { stemOptBuckets } from '@/lib/stemOptTimeline'
+import StemOptAttributeForm from '@/components/StemOptAttributeForm'
 
 type Criteria = {
   current_visa_or_greencard_category?: string[]
@@ -295,6 +298,33 @@ export default function GroupPage() {
   }, [group, vocab])
   const templateRows = matchedType ? vocab.post_join_attribute_templates[matchedType] || [] : []
   const required = requiredKeys(templateRows)
+
+  // The attribute-capture form for the join / gate / edit sites. For a STEM OPT
+  // cohort it is the SAME structured card as /post (with a paste-to-extract
+  // on-ramp); every other timeline type keeps the generic row-by-row form.
+  const renderAttrForm = (
+    values: Record<string, string>,
+    setValues: Dispatch<SetStateAction<Record<string, string>>>,
+    formNotes: string,
+    setFormNotes: (v: string) => void,
+  ) =>
+    matchedType === 'stem-opt-extension' ? (
+      <StemOptAttributeForm
+        values={values}
+        onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+        notes={formNotes}
+        onNotesChange={setFormNotes}
+      />
+    ) : (
+      <AttributeForm
+        rows={templateRows}
+        values={values}
+        onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+        notes={formNotes}
+        onNotesChange={setFormNotes}
+        required={required}
+      />
+    )
 
   useEffect(() => {
     if (!group || !group.is_member || !id) { setCohortAttrs([]); setPendingInvites([]); return }
@@ -636,9 +666,7 @@ export default function GroupPage() {
                           ? 'Required to join — shared with the rest of the cohort.'
                           : 'Optional — shared with the rest of the cohort. You can fill these in later.'}
                       </p>
-                      <AttributeForm rows={templateRows} values={joinValues}
-                        onChange={(k, v) => setJoinValues((prev) => ({ ...prev, [k]: v }))}
-                        notes={joinNotes} onNotesChange={setJoinNotes} required={required} />
+                      {renderAttrForm(joinValues, setJoinValues, joinNotes, setJoinNotes)}
                     </div>
                   )}
                   <button onClick={joinThisGroup} disabled={joining || required.some((k) => !joinValues[k]?.trim())}
@@ -663,9 +691,7 @@ export default function GroupPage() {
                       ? 'Required to access this group — shared with the rest of the cohort.'
                       : 'Optional — shared with the rest of the cohort. Save to continue, and add them any time.'}
                   </p>
-                  <AttributeForm rows={templateRows} values={gateValues}
-                    onChange={(k, v) => setGateValues((prev) => ({ ...prev, [k]: v }))}
-                    notes={gateNotes} onNotesChange={setGateNotes} required={required} />
+                  {renderAttrForm(gateValues, setGateValues, gateNotes, setGateNotes)}
                   <button onClick={submitGateAttrs}
                     disabled={savingGate || required.some((k) => !gateValues[k]?.trim())}
                     className="btn-primary text-label-md mt-3 disabled:opacity-50">
@@ -680,9 +706,7 @@ export default function GroupPage() {
                   <div className="card max-w-xl">
                     <h3 className="text-label-md font-semibold text-on-surface mb-1">Edit your {matchedType} attributes</h3>
                     <p className="text-caption text-on-surface-variant mb-3">Shared with the rest of the cohort.</p>
-                    <AttributeForm rows={templateRows} values={gateValues}
-                      onChange={(k, v) => setGateValues((prev) => ({ ...prev, [k]: v }))}
-                      notes={gateNotes} onNotesChange={setGateNotes} required={required} />
+                    {renderAttrForm(gateValues, setGateValues, gateNotes, setGateNotes)}
                     <div className="flex gap-2 mt-3">
                       <button onClick={async () => { await submitGateAttrs(); setEditingAttrs(false) }}
                         disabled={savingGate || required.some((k) => !gateValues[k]?.trim())}
@@ -704,6 +728,33 @@ export default function GroupPage() {
                     Edit your {matchedType} attributes
                   </button>
                 )
+              )}
+              {/* STEM OPT cohort → posting (reverse cross-link,
+                  features/stem-opt-timeline-9/ Phase 3): a member can turn their
+                  own submitted timeline attributes into a shareable posting. It
+                  only prefills a /post draft (never auto-publishes) — the same
+                  hand-off the AI-Assist bridge uses. STEM OPT only for now. */}
+              {!group.needs_attributes && matchedType === 'stem-opt-extension' && myAttrs && (
+                <button
+                  data-testid="share-as-posting"
+                  onClick={() => {
+                    const { key_dates, key_stages_or_info } = stemOptBuckets(myAttrs.values || {})
+                    const c = group.criteria_tags
+                    const groups: DraftGroups = {
+                      visa_applying_for: c?.visa_applying_for || [],
+                      current_visa_or_greencard_category: c?.current_visa_or_greencard_category || [],
+                      primary_consulate: c?.primary_consulate || '',
+                      consulates: c?.consulates || [],
+                      tags: ['stem-opt-extension'],
+                      concerns_or_questions_tags: [],
+                    }
+                    writePostDraft({ title: '', description: myAttrs.notes || '', groups, key_stages_or_info, key_dates }, 'cohort')
+                    router.push('/post')
+                  }}
+                  className="text-label-md text-primary hover:underline self-start"
+                >
+                  Share your timeline as a posting
+                </button>
               )}
               {!group.needs_attributes && <GroupChat groupId={group.group_id} />}
             </div>

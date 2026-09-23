@@ -16,7 +16,13 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '../constants/theme';
-import { Card, Header } from '../components';
+import { Card, Header, StemOptTimelineCard } from '../components';
+import { navigateNested } from '../navigation/navigationRef';
+import {
+  isStemOptTimeline,
+  stemOptCohortParams,
+  filingPeriodFromDate,
+} from '../lib/stemOptTimeline';
 import {
   getTagVocab,
   suggestTags,
@@ -485,6 +491,48 @@ export function PostScreen() {
               <Text style={styles.anotherButtonText}>Post Another</Text>
             </TouchableOpacity>
           </View>
+
+          {/* STEM OPT posting → cohort bridge (features/stem-opt-timeline-9/,
+              Phase 4): the post already published; this only offers to join the
+              matching EAD·stem-opt Timeline cohort, derived from ead_filed_date
+              (prompts for just that date when missing). Never auto-joins. */}
+          {isStemOptTimeline(groups) && (
+            <View style={styles.cohortBridge} testID="stem-opt-cohort-bridge">
+              <Text style={styles.cohortHeading}>Find others on your timeline</Text>
+              {stemOptCohortParams(dates) ? (
+                <>
+                  <Text style={styles.cohortSubtext}>
+                    Join or create the EAD · STEM OPT cohort for{' '}
+                    {filingPeriodFromDate(dates.ead_filed_date)?.filing_month}{' '}
+                    {filingPeriodFromDate(dates.ead_filed_date)?.filing_year}.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.cohortButton}
+                    testID="stem-opt-cohort-link"
+                    onPress={() =>
+                      navigation.navigate('Find', { screen: 'FindMain', params: stemOptCohortParams(dates)! })
+                    }
+                  >
+                    <Text style={styles.cohortButtonText}>Find your cohort →</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.cohortSubtext}>Add your I-765 filing date to find your cohort:</Text>
+                  <TextInput
+                    style={styles.cohortInput}
+                    accessibilityLabel="I-765 filing date"
+                    value={dates.ead_filed_date || ''}
+                    onChangeText={(t) => setDates((d) => ({ ...d, ead_filed_date: t }))}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.onSurfaceVariant}
+                    autoCapitalize="none"
+                    keyboardType="numbers-and-punctuation"
+                  />
+                </>
+              )}
+            </View>
+          )}
         </View>
       </View>
     );
@@ -762,6 +810,22 @@ export function PostScreen() {
                 />
               </View>
 
+              {/* STEM OPT unified timeline (features/stem-opt-timeline-9/,
+                  Phase 4): a stem-opt-extension posting captures its milestones
+                  through the shared structured card instead of the generic
+                  stage/date rows — parity with the website composer. */}
+              {isStemOptTimeline(groups) && (
+                <StemOptTimelineCard
+                  keyDates={dates}
+                  keyStages={stages}
+                  onChange={(d, s) => {
+                    setDates(d);
+                    setStages(s);
+                  }}
+                />
+              )}
+              {!isStemOptTimeline(groups) && (
+                <>
               {/* Stages / outcomes (add-row always available so the first can be added) */}
               <View style={styles.tagSection}>
                 <Text style={styles.tagSectionLabel}>Process / outcome</Text>
@@ -841,6 +905,8 @@ export function PostScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
+                </>
+              )}
 
               {/* Submit */}
               <View style={styles.submitSection}>
@@ -1162,6 +1228,48 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: colors.onSurface,
+  },
+  cohortBridge: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.outlineVariant,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+  },
+  cohortHeading: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.onSurface,
+  },
+  cohortSubtext: {
+    fontSize: 13,
+    color: colors.onSurfaceVariant,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: spacing.sm,
+  },
+  cohortButton: {
+    backgroundColor: colors.surfaceContainerHigh,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: borderRadius.default,
+  },
+  cohortButtonText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.primary,
+  },
+  cohortInput: {
+    width: 180,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    color: colors.onSurface,
+    textAlign: 'center',
   },
 });
 
