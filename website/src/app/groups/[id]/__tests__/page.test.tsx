@@ -460,14 +460,16 @@ describe('GroupPage — join preview attribute form (non-member)', () => {
     }) as unknown as typeof fetch
   }
 
-  it('shows the attribute form inline on the join preview for a matching Timeline group', async () => {
+  it('shows the STEM OPT structured card inline on the join preview for a matching Timeline group', async () => {
     mockJoinFlow(TIMELINE_GROUP)
     render(<GroupPage />)
     await screen.findByText('Join group')
 
     expect(screen.getByText('Your stem-opt-extension attributes')).toBeInTheDocument()
-    expect(screen.getByText('Date Applied')).toBeInTheDocument()
-    expect(screen.getByText('Notice of Intent to Deny (NOID)')).toBeInTheDocument()
+    // stem-opt renders the shared structured card (same as /post), not the
+    // generic row-by-row template form.
+    expect(screen.getByTestId('stem-opt-timeline-card')).toBeInTheDocument()
+    expect(screen.getByLabelText('Date applied (I-765 filed)')).toBeInTheDocument()
     expect(screen.getByText('Notes')).toBeInTheDocument()
   })
 
@@ -697,7 +699,8 @@ describe('GroupPage — editing your own attributes', () => {
 
     fireEvent.click(await screen.findByText(/Edit your stem-opt-extension attributes/))
 
-    const input = screen.getByLabelText(/Date Applied/) as HTMLInputElement
+    // stem-opt edits through the structured card (label from the canonical field).
+    const input = screen.getByLabelText('Date applied (I-765 filed)') as HTMLInputElement
     expect(input.value).toBe('2026-03-01')
 
     fireEvent.change(input, { target: { value: '2026-04-02' } })
@@ -1010,9 +1013,12 @@ describe('GroupPage — an all-optional template never blocks the join', () => {
   })
 })
 
+// Exercises the GENERIC row-by-row AttributeForm (control per template `kind`).
+// Uses a non-stem-opt timeline type on purpose — stem-opt-extension now renders
+// the structured card instead (see "STEM OPT timeline form" below).
 describe('GroupPage — attribute controls follow the template kind', () => {
   const KIND_TEMPLATES = {
-    'stem-opt-extension': [
+    'h4-ead': [
       { kind: 'date', label: 'Date Applied', field: 'key_dates', key: 'ead_filed_date' },
       { kind: 'select', label: 'Status', field: 'key_stages_or_info', key: 'application_status',
         options: ['approved', 'pending', 'denied', 'RFE', 'NOID'] },
@@ -1024,7 +1030,7 @@ describe('GroupPage — attribute controls follow the template kind', () => {
   function mockGate() {
     const gated = {
       ...BASE_GROUP, group_type: 'timeline',
-      criteria_tags: { tags: ['stem-opt-extension'] }, needs_attributes: true,
+      criteria_tags: { tags: ['h4-ead'] }, needs_attributes: true,
     }
     global.fetch = vi.fn(async (url: string, opts?: RequestInit) => {
       if (String(url).includes('/api/tag-vocab')) {

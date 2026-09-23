@@ -13,9 +13,9 @@ import {
 } from '@/lib/stemOptTimeline'
 
 /**
- * STEM OPT unified-timeline — Phase 2 (features/stem-opt-timeline-9/).
- * Scope: STEM OPT only. The cross-link + Timeline-form specs stay `it.todo`
- * for Phase 3.
+ * STEM OPT unified-timeline (features/stem-opt-timeline-9/). Scope: STEM OPT
+ * only. Cross-link (Phase 3) and Timeline-form reuse (Phase 6) are implemented;
+ * see StemOptAttributeForm.test.tsx and the post/group page suites.
  */
 
 describe('stemOptTimeline (lib)', () => {
@@ -180,8 +180,7 @@ describe('StemOptTimelineCard — shared capture component', () => {
 //    stem-opt group, covered in app/groups/[id]/__tests__/page.test.tsx
 //    ("STEM OPT cohort → posting") + the stemOptBuckets unit test above.
 
-// Deferred to a later pass — reuse the same card as the Timeline join form:
-describe('StemOptTimelineCard — Timeline group form [later]', () => {
-  it.todo('renders as the join/attribute form for stem-opt-extension (same card as /post)')
-  it.todo('optionally accepts pasted free-text timeline → tag-suggest → prefills the card')
-})
+// Phase 6 — Timeline-form reuse DONE: the same card is the stem-opt-extension
+// join/attribute form (with a paste-your-timeline on-ramp), covered by
+// StemOptAttributeForm.test.tsx + the group page's join/gate/edit specs
+// (app/groups/[id]/__tests__/page.test.tsx).
