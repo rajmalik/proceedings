@@ -479,14 +479,17 @@ describe('GroupChatScreen — join preview attribute form (non-member)', () => {
     ...GROUP, group_type: 'timeline', criteria_tags: { tags: ['stem-opt-extension'] }, is_member: false,
   };
 
-  it('shows the attribute form inline on the join preview for a matching Timeline group', async () => {
+  it('shows the STEM OPT structured card inline on the join preview for a matching Timeline group', async () => {
     (getGroup as jest.Mock).mockResolvedValue(TIMELINE_GROUP);
     const screen = await renderScreen(<GroupChatScreen />);
     await screen.findByText('Join group');
 
     expect(screen.getByText('Your stem-opt-extension attributes')).toBeOnTheScreen();
-    expect(screen.getByText('Date Applied *')).toBeOnTheScreen();
-    expect(screen.getByText('Notice of Intent to Deny (NOID)')).toBeOnTheScreen();
+    // stem-opt renders the shared structured card (same as PostScreen) + the
+    // paste on-ramp, not the generic row-by-row template form.
+    expect(screen.getByTestId('stem-opt-timeline-card')).toBeOnTheScreen();
+    expect(screen.getByText('Paste your timeline (optional)')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Date applied (I-765 filed)')).toBeOnTheScreen();
   });
 
   it('disables Join until the required field (row 0 — Date Applied) is filled', async () => {
@@ -741,10 +744,13 @@ describe('GroupChatScreen — Timeline rename lock', () => {
   });
 });
 
+// Exercises the GENERIC row-by-row AttributeForm (control per template `kind`).
+// Uses a non-stem-opt timeline type on purpose — stem-opt-extension now renders
+// the structured card instead (see "STEM OPT timeline form" below).
 describe('GroupChatScreen — attribute controls follow the template kind', () => {
   const KIND_VOCAB = {
     post_join_attribute_templates: {
-      'stem-opt-extension': [
+      'h4-ead': [
         { kind: 'date', label: 'Date Applied', field: 'key_dates', key: 'ead_filed_date' },
         { kind: 'select', label: 'Status', field: 'key_stages_or_info', key: 'application_status',
           options: ['approved', 'pending', 'denied', 'RFE', 'NOID'] },
@@ -754,7 +760,7 @@ describe('GroupChatScreen — attribute controls follow the template kind', () =
   };
   const GATED = {
     ...GROUP, group_type: 'timeline',
-    criteria_tags: { tags: ['stem-opt-extension'] }, needs_attributes: true,
+    criteria_tags: { tags: ['h4-ead'] }, needs_attributes: true,
   };
 
   beforeEach(() => {

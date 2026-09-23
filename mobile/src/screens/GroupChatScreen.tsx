@@ -18,7 +18,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '../constants/theme';
-import { GroupChat, MatchCard, AppText, Badge, AuthorCard } from '../components';
+import { GroupChat, MatchCard, AppText, Badge, AuthorCard, StemOptAttributeForm } from '../components';
 import {
   getGroup,
   leaveGroup,
@@ -326,6 +326,33 @@ export function GroupChatScreen() {
   const templateRows: PostJoinRow[] = matchedType && vocab ? vocab.post_join_attribute_templates[matchedType] || [] : [];
   const required = requiredAttributeKeys(templateRows);
 
+  // The attribute-capture form for the join / gate / edit sites. A STEM OPT
+  // cohort uses the SAME structured card as PostScreen (with a paste-to-extract
+  // on-ramp); every other timeline type keeps the generic row-by-row form.
+  const renderAttrForm = (
+    values: Record<string, string>,
+    setValues: React.Dispatch<React.SetStateAction<Record<string, string>>>,
+    formNotes: string,
+    setFormNotes: (v: string) => void,
+  ) =>
+    matchedType === 'stem-opt-extension' ? (
+      <StemOptAttributeForm
+        values={values}
+        onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+        notes={formNotes}
+        onNotesChange={setFormNotes}
+      />
+    ) : (
+      <AttributeForm
+        rows={templateRows}
+        values={values}
+        onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+        notes={formNotes}
+        onNotesChange={setFormNotes}
+        required={required}
+      />
+    );
+
   const submitGateAttrs = async () => {
     setSavingGate(true);
     try {
@@ -569,9 +596,7 @@ export function GroupChatScreen() {
                       ? 'Required to join — shared with the rest of the cohort.'
                       : 'Optional — shared with the rest of the cohort. You can fill these in later.'}
                   </AppText>
-                  <AttributeForm rows={templateRows} values={joinValues}
-                    onChange={(k, v) => setJoinValues((prev) => ({ ...prev, [k]: v }))}
-                    notes={joinNotes} onNotesChange={setJoinNotes} required={required} />
+                  {renderAttrForm(joinValues, setJoinValues, joinNotes, setJoinNotes)}
                 </View>
               )}
               <TouchableOpacity
@@ -644,9 +669,7 @@ export function GroupChatScreen() {
                 ? 'Required to access this group — shared with the rest of the cohort.'
                 : 'Optional — shared with the rest of the cohort. Save to continue, and add them any time.'}
             </AppText>
-            <AttributeForm rows={templateRows} values={gateValues}
-              onChange={(k, v) => setGateValues((prev) => ({ ...prev, [k]: v }))}
-              notes={gateNotes} onNotesChange={setGateNotes} required={required} />
+            {renderAttrForm(gateValues, setGateValues, gateNotes, setGateNotes)}
             <View style={styles.postJoinActions}>
               <TouchableOpacity
                 onPress={submitGateAttrs}
@@ -666,9 +689,7 @@ export function GroupChatScreen() {
             <AppText variant="caption" color="onSurfaceVariant" style={styles.postJoinHint}>
               Shared with the rest of the cohort.
             </AppText>
-            <AttributeForm rows={templateRows} values={gateValues}
-              onChange={(k, v) => setGateValues((prev) => ({ ...prev, [k]: v }))}
-              notes={gateNotes} onNotesChange={setGateNotes} required={required} />
+            {renderAttrForm(gateValues, setGateValues, gateNotes, setGateNotes)}
             <View style={styles.postJoinActions}>
               <TouchableOpacity
                 onPress={async () => { await submitGateAttrs(); setEditingAttrs(false); }}
