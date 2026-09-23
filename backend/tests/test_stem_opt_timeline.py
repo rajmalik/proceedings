@@ -13,11 +13,17 @@ State:
   D      — the `ead_filed_date -> {filing_month, filing_year}` derivation that
            the posting->cohort cross-link needs. **RED until Phase 1** adds
            posting.filing_period().
+  F      — cross-link: the derived period feeds the cohort criteria + deep-link.
+  G      — OFFLINE golden (Phase 5): the human-curated reading of each fully-dated
+           curated fixture maps to the expected cohort and only canonical fields.
+           Deterministic (no Gemini) — it locks the cohort contract and documents
+           the recall targets that the LIVE group E validates the extractor
+           against.
   E      — LIVE recall bar: tag-suggest must extract the STEM OPT fields from the
            curated prose (curated/stem/*.txt). Runs only with `integration` +
            GCP; it is the target Phase 1 tightens toward.
 
-NOT yet wired into the no-GCP CI gate — add it once D is green.
+Runs in the no-GCP CI gate (unit scope: A–D, F, G). E is integration-only.
 Run:  python tests/test_stem_opt_timeline.py [integration]
 """
 import json
@@ -173,6 +179,73 @@ def group_f() -> None:
 
 
 # ---------------------------------------------------------------------------
+# G — OFFLINE golden: the human-curated interpretation of each curated fixture
+#     maps to the expected cohort + only canonical fields (no Gemini needed).
+#     This locks the feature's cohort contract deterministically and documents
+#     the recall targets that the LIVE group E validates the extractor against.
+# ---------------------------------------------------------------------------
+
+# Ground-truth structured reading of the fully-dated curated STEM OPT postings
+# (curated/stem/*.txt). Dates are the ISO form of what each posting states; the
+# cohort is what ead_filed_date must derive. Keys must stay within the canonical
+# schema — this is the never-fabricate / no-drift guard, offline.
+_GOLDEN = [
+    {"fixture": "ss2.txt", "ead_filed_date": "2026-04-24", "cohort": {"filing_month": "Apr", "filing_year": "2026"},
+     "key_dates": {"ead_approved_date": "2026-09-17"},
+     "key_stages_or_info": {"premium_processing": "yes", "application_status": "approved"}},
+    {"fixture": "ss3.txt", "ead_filed_date": "2026-03-20", "cohort": {"filing_month": "Mar", "filing_year": "2026"},
+     "key_dates": {"biometrics_completed_date": "2026-04-08", "ead_approved_date": "2026-09-21"},
+     "key_stages_or_info": {"premium_processing": "yes", "application_status": "approved"}},
+    {"fixture": "ss5.txt", "ead_filed_date": "2026-03-18", "cohort": {"filing_month": "Mar", "filing_year": "2026"},
+     "key_dates": {"biometrics_completed_date": "2026-04-06", "ead_approved_date": "2026-09-17"},
+     "key_stages_or_info": {"application_status": "approved", "premium_processing": "no"}},
+    {"fixture": "ss10.txt", "ead_filed_date": "2026-03-18", "cohort": {"filing_month": "Mar", "filing_year": "2026"},
+     "key_dates": {"biometrics_completed_date": "2026-04-16", "ead_approved_date": "2026-09-17"},
+     "key_stages_or_info": {"premium_processing": "no", "biometrics_requested": "yes", "application_status": "approved"}},
+    {"fixture": "ss11.txt", "ead_filed_date": "2026-02-17", "cohort": {"filing_month": "Feb", "filing_year": "2026"},
+     "key_dates": {},
+     "key_stages_or_info": {"premium_processing": "yes", "biometrics_requested": "yes", "application_status": "pending"}},
+    {"fixture": "ss13.txt", "ead_filed_date": "2026-03-16", "cohort": {"filing_month": "Mar", "filing_year": "2026"},
+     "key_dates": {},
+     "key_stages_or_info": {"application_status": "pending"}},
+]
+
+
+def group_g() -> None:
+    print("\nG — offline golden (curated fixtures → expected cohort + canonical fields)")
+    import assist
+    fn = getattr(posting, "filing_period", None)
+    if not callable(fn):
+        pending("G posting.filing_period required for the golden", "see group D")
+        return
+    canonical_dates = set(CANONICAL_DATE_KEYS)
+    canonical_stages = set(CANONICAL_STAGE_KEYS)
+    for g in _GOLDEN:
+        name = g["fixture"]
+        # 1) the filed date derives the expected cohort
+        check(f"G[{name}] filing_period derives {g['cohort']['filing_month']} {g['cohort']['filing_year']}",
+              fn(g["ead_filed_date"]) == g["cohort"], str(fn(g["ead_filed_date"])))
+        # 2) never fabricates a field outside the canonical schema (no drift)
+        bad_dates = [k for k in g["key_dates"] if k not in canonical_dates]
+        bad_stages = [k for k in g["key_stages_or_info"] if k not in canonical_stages]
+        check(f"G[{name}] date keys are all canonical", not bad_dates, f"off-schema: {bad_dates}")
+        check(f"G[{name}] stage keys are all canonical", not bad_stages, f"off-schema: {bad_stages}")
+        # 3) the derived period resolves the same cohort deep-link the app uses
+        period = fn(g["ead_filed_date"])
+        r = assist.resolve_timeline_criteria({
+            "timeline_processing_type": "EAD",
+            "timeline_eligibility": "stem-opt-extension",
+            "timeline_filing_month": period.get("filing_month"),
+            "timeline_filing_year": period.get("filing_year"),
+        })
+        url = assist._timeline_find_url(r)
+        want = (f"filing_month={g['cohort']['filing_month']}", f"filing_year={g['cohort']['filing_year']}",
+                "eligibility=stem-opt-extension")
+        check(f"G[{name}] cohort deep-link carries the derived period",
+              r.get("sufficient") is True and all(s in url for s in want), url)
+
+
+# ---------------------------------------------------------------------------
 # E — LIVE recall bar: tag-suggest extracts the STEM OPT fields from curated prose
 # ---------------------------------------------------------------------------
 
@@ -213,6 +286,7 @@ def main() -> None:
     group_c()
     group_d()
     group_f()
+    group_g()
     if scope in ("integration", "all"):
         group_e()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} invariant checks passed; {_pending} contract(s) pending (Phase 1)")

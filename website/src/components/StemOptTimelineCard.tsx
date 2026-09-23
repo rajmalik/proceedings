@@ -4,6 +4,7 @@ import {
   STEM_OPT_TIMELINE_FIELDS,
   STEM_OPT_ANCHOR_KEY,
   stemOptSummary,
+  stemOptCaptureCount,
   totalDays,
   type StemOptField,
 } from '@/lib/stemOptTimeline'
@@ -34,12 +35,18 @@ export default function StemOptTimelineCard({
   }
 
   const days = totalDays(keyDates)
+  const { captured, total } = stemOptCaptureCount(keyDates, keyStages)
 
   return (
     <div className="card space-y-3" data-testid="stem-opt-timeline-card">
-      <div className="flex items-center gap-2">
-        <span className="material-symbols-outlined text-secondary text-[20px]">timeline</span>
-        <span className="text-label-md font-semibold text-on-surface">STEM OPT timeline</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-secondary text-[20px]">timeline</span>
+          <span className="text-label-md font-semibold text-on-surface">STEM OPT timeline</span>
+        </div>
+        <span className="text-caption text-on-surface-variant" data-testid="stem-opt-capture">
+          {captured} of {total} captured
+        </span>
       </div>
 
       <p className="text-caption text-on-surface-variant" data-testid="stem-opt-summary">

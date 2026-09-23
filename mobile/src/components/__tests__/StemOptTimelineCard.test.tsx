@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderScreen, fireEvent } from '../../test/render';
 import { StemOptTimelineCard } from '../StemOptTimelineCard';
-import { STEM_OPT_TIMELINE_FIELDS } from '../../lib/stemOptTimeline';
+import { STEM_OPT_TIMELINE_FIELDS, stemOptCaptureCount } from '../../lib/stemOptTimeline';
 
 // STEM OPT shared capture card — Phase 4 (mobile parity for the website
 // component). Scope: STEM OPT only.
@@ -51,6 +51,26 @@ describe('StemOptTimelineCard (mobile)', () => {
     expect(summary).toHaveTextContent(/Filed Mar 2026/);
     expect(summary).toHaveTextContent(/approved in 30 days/);
     expect(summary).toHaveTextContent(/30 days total/);
+  });
+
+  it('stemOptCaptureCount counts populated canonical fields, ignoring off-schema keys', () => {
+    expect(stemOptCaptureCount({}, {})).toEqual({ captured: 0, total: STEM_OPT_TIMELINE_FIELDS.length });
+    expect(
+      stemOptCaptureCount({ ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' }, { application_status: 'approved' }),
+    ).toEqual({ captured: 3, total: STEM_OPT_TIMELINE_FIELDS.length });
+    expect(stemOptCaptureCount({ ead_filed_date: '2026-03-18', not_a_field: 'x' }, {})).toEqual({
+      captured: 1,
+      total: STEM_OPT_TIMELINE_FIELDS.length,
+    });
+  });
+
+  it('shows a partial-parse capture count', async () => {
+    const screen = await renderScreen(
+      <StemOptTimelineCard keyDates={{ ead_filed_date: '2026-03-18' }} keyStages={{}} onChange={noop} />,
+    );
+    expect(screen.getByTestId('stem-opt-capture')).toHaveTextContent(
+      `1 of ${STEM_OPT_TIMELINE_FIELDS.length} captured`,
+    );
   });
 
   it('edits a date field back through onChange', async () => {

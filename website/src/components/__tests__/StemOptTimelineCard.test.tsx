@@ -8,6 +8,7 @@ import {
   isStemOptTimeline,
   stemOptCohortUrl,
   stemOptBuckets,
+  stemOptCaptureCount,
   STEM_OPT_TIMELINE_FIELDS,
 } from '@/lib/stemOptTimeline'
 
@@ -70,6 +71,18 @@ describe('stemOptTimeline (lib)', () => {
     expect(stemOptBuckets({})).toEqual({ key_dates: {}, key_stages_or_info: {} })
     expect(stemOptBuckets(null)).toEqual({ key_dates: {}, key_stages_or_info: {} })
   })
+
+  it('stemOptCaptureCount counts populated canonical fields against the total', () => {
+    expect(stemOptCaptureCount({}, {})).toEqual({ captured: 0, total: STEM_OPT_TIMELINE_FIELDS.length })
+    expect(
+      stemOptCaptureCount({ ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' }, { application_status: 'approved' }),
+    ).toEqual({ captured: 3, total: STEM_OPT_TIMELINE_FIELDS.length })
+    // an off-schema key is not counted
+    expect(stemOptCaptureCount({ ead_filed_date: '2026-03-18', not_a_field: 'x' }, {})).toEqual({
+      captured: 1,
+      total: STEM_OPT_TIMELINE_FIELDS.length,
+    })
+  })
 })
 
 describe('StemOptTimelineCard — shared capture component', () => {
@@ -104,6 +117,21 @@ describe('StemOptTimelineCard — shared capture component', () => {
     // once provided, the flag is gone
     rerender(<StemOptTimelineCard keyDates={{ ead_filed_date: '2026-03-18' }} keyStages={{}} onChange={noop} />)
     expect(screen.queryByTestId('needs-ead_filed_date')).toBeNull()
+  })
+
+  it('shows a partial-parse capture count that reflects how much was prefilled', () => {
+    const { rerender } = render(
+      <StemOptTimelineCard keyDates={{ ead_filed_date: '2026-03-18' }} keyStages={{}} onChange={noop} />
+    )
+    expect(screen.getByTestId('stem-opt-capture')).toHaveTextContent(`1 of ${STEM_OPT_TIMELINE_FIELDS.length} captured`)
+    rerender(
+      <StemOptTimelineCard
+        keyDates={{ ead_filed_date: '2026-03-18', ead_approved_date: '2026-09-17' }}
+        keyStages={{ application_status: 'approved' }}
+        onChange={noop}
+      />
+    )
+    expect(screen.getByTestId('stem-opt-capture')).toHaveTextContent(`3 of ${STEM_OPT_TIMELINE_FIELDS.length} captured`)
   })
 
   it('computes and displays the derived total days and a readable summary', () => {

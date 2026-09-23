@@ -9,6 +9,7 @@ import {
   STEM_OPT_TIMELINE_FIELDS,
   STEM_OPT_ANCHOR_KEY,
   stemOptSummary,
+  stemOptCaptureCount,
   totalDays,
   type StemOptField,
 } from '../lib/stemOptTimeline';
@@ -40,6 +41,7 @@ export function StemOptTimelineCard({
   };
 
   const days = totalDays(keyDates);
+  const { captured, total } = stemOptCaptureCount(keyDates, keyStages);
 
   return (
     <View testID="stem-opt-timeline-card">
@@ -48,6 +50,9 @@ export function StemOptTimelineCard({
         <Ionicons name="git-branch-outline" size={18} color={colors.secondary} />
         <AppText variant="labelMd" color="onSurface" style={styles.headerText}>
           STEM OPT timeline
+        </AppText>
+        <AppText variant="caption" color="onSurfaceVariant" style={styles.captureCount} testID="stem-opt-capture">
+          {captured} of {total} captured
         </AppText>
       </View>
 
@@ -133,6 +138,9 @@ const styles = StyleSheet.create({
   },
   headerText: {
     marginLeft: spacing.xs,
+  },
+  captureCount: {
+    marginLeft: 'auto',
   },
   fields: {
     marginTop: spacing.sm,

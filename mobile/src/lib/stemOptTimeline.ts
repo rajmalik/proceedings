@@ -81,6 +81,21 @@ export function isStemOptTimeline(groups: { tags?: string[] } | null | undefined
   return !!groups?.tags?.includes('stem-opt-extension');
 }
 
+/** How many of the canonical timeline fields are populated — drives the
+ *  partial-parse "N of M captured" hint so a thin auto-parse is legible and the
+ *  user knows there's more to fill. Counts only non-empty values. */
+export function stemOptCaptureCount(
+  keyDates: Record<string, string>,
+  keyStages: Record<string, string>,
+): { captured: number; total: number } {
+  let captured = 0;
+  for (const f of STEM_OPT_TIMELINE_FIELDS) {
+    const v = f.bucket === 'key_dates' ? keyDates?.[f.key] : keyStages?.[f.key];
+    if (v) captured += 1;
+  }
+  return { captured, total: STEM_OPT_TIMELINE_FIELDS.length };
+}
+
 /** Split a flat stem-opt attribute map (as a cohort member stores it under one
  *  `values` bag) back into the posting's key_dates / key_stages_or_info buckets,
  *  per the canonical field schema. Unknown keys are dropped — never guessed into
