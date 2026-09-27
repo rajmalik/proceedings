@@ -1,6 +1,10 @@
 # Grounding sources — at-a-glance registry
 
 Sources only. Full analysis: `docs/explorations/grounding-strategy.md` + `GROUNDING-INGESTION-PLAN.md`.
+
+> **Maintenance (keep current):** whenever grounding ingestion changes — a source added, removed, or
+> toggled on/off; a gap closed; a new source ruled out — update the relevant A/B/C list here **in the
+> same change/PR**, in this session and future sessions on any branch. Keep it sources-only (no prose).
 Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `datastore(DS-2)` = crawl ·
 `web-search` = live tier · `function-call` = live API (not indexed). Tier: gov / community / web.
 
@@ -37,8 +41,15 @@ Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `
 | uscis.gov, travel.state.gov, dhs.gov | web-search (.gov-restricted) | `AI_ASSIST_WEB_SEARCH=0` |
 
 ## B. Gaps — potential sources to add (not yet grounded)
+
+> Sub-page gap: the `official_reference` poller fetches only the **exact URLs** in section A (single-page,
+> no crawl), so the **child pages/sub-trees** of section-A sources below are NOT grounded.
+
 | Source | Priority | Proposed method |
 |---|---|---|
+| **Sub-pages of covered USCIS pages** — `uscis.gov/green-card/*` (green-card-eligibility, how-to-apply, consular-processing, maintaining/replacing/rights), `uscis.gov/family/*` (family-of-us-citizens, spouse/fiancé, adoption), `uscis.gov/working-in-the-united-states/*` (temporary/permanent workers, students-and-employment, employers/I-9) | P1–P2 | official_reference config (curate from `uscis.gov/sitemap`) or DS-2 crawl |
+| **Sub-pages of DHS Study in the States** — `studyinthestates.dhs.gov/students/study/*`, `/stem-opt-hub`, `/sevp-portal-help`, `/sevis-help-hub/*`, `/schools` | P2 | official_reference config |
+| **Sub-pages of ICE SEVIS** — `ice.gov/sevis/overview`, `/students`, `/schools`, `/schools/reg`, `/schools/school-alerts` | P2 | official_reference config |
 | State Dept — Visa Bulletin (`travel.state.gov`) | P1 (ops) | official_reference adapter (resilient fetch) |
 | USCIS — Processing times (`egov.uscis.gov/processing-times`) | P1 (ops) | adapter (fetch decision pending) |
 | USCIS — Case Status API (`developer.uscis.gov`) | P1 (ops) | function-call (authenticated, live) |

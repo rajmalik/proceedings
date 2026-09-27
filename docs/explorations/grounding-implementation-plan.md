@@ -47,6 +47,56 @@ new **rules/notices** as `doc_kind="gov_news"`.
 
 ---
 
+## Milestone 1.5 — Deepen existing sources: sub-pages of Section A (before adding new sources)
+
+**Finding:** the `official_reference` poller fetches only the **exact URLs** listed — single-page, no crawl
+(`official_reference_poll.fetch_page_text` GETs one URL, no link-following). So the **child pages** of the 12
+Section-A sources are **not grounded**, e.g.:
+- `uscis.gov/green-card/*` (green-card-eligibility, how-to-apply, consular-processing, maintaining/replacing/rights)
+- `uscis.gov/family/*` (family-of-us-citizens, spouse/fiancé, intercountry adoption)
+- `uscis.gov/working-in-the-united-states/*` (temporary/permanent workers, students-and-employment, employers/I-9)
+- `studyinthestates.dhs.gov/students/study/*`, `/stem-opt-hub`, `/sevp-portal-help`, `/sevis-help-hub/*`, `/schools`
+- `ice.gov/sevis/{overview,students,schools,schools/reg,school-alerts}`
+
+**Two ways to close (choose per source):**
+- **1.5a — curated expansion (recommended, authenticated):** harvest child URLs from `uscis.gov/sitemap` (+ the
+  ICE/DHS site maps), filter to immigration-relevant public-domain pages, add to
+  `official_reference_sources.default.json`. Gov-only + controllable, but manual/config-heavy — consider a one-off
+  `scripts/curation/harvest_sitemap.py` that *proposes* candidate URLs for human review before they're added.
+- **1.5b — whole-domain crawl:** exactly what the DS-2 tier does automatically (Google crawls the whole domain
+  incl. sub-pages) — see the OFF-tiers section; zero curation, but pulls non-gov sites and is a broad fallback,
+  not curated grounding.
+
+**Tests/acceptance:** same as M1 (each new URL polls `published`/`skipped`; a question only a child page answers
+now returns a cited gov answer). **Sequence:** do 1.5a for the highest-value trees (green-card, family,
+working-in-the-US, Study-in-the-States STEM-OPT hub) **before** adding *new* sources.
+
+## Wired-but-OFF tiers — why they aren't serving, and what turning them on needs
+
+Both are built but disabled by **deliberate gate**, not by accident:
+
+### DS-2 web crawl (`imm-public-reference-datastore`, tier-3 fallback)
+- **Why off:** enabled only by setting `GCP_VERTEX_PUBLIC_ENGINE_ID`, and the provision script says to do that
+  **only once the crawl's target sites read `SUCCEEDED`** (Google's async website indexing "can take time to
+  populate") — so it's gated on crawl completion. Plus a **quality/authenticity** concern: its `PUBLIC_DOMAINS`
+  mixes non-gov law-firm/guide sites (`boundless.com`, `immigrationdirect.com`) with `.gov`, which conflicts with
+  the gov-first goal.
+- **To turn on:** confirm target-site indexing `SUCCEEDED`; decide whether to keep the non-gov domains (or restrict
+  to `.gov`); set `GCP_VERTEX_PUBLIC_ENGINE_ID` to the engine id. Best as a labelled tier-3 fallback beneath DS-1.
+
+### Live web-search tier (Gemini Grounding with Google Search, `AI_ASSIST_WEB_SEARCH=0`)
+- **Why off:** **priced per grounded request** (cost gate); shipped as a Phase-1 "tier function only, wired into
+  the cascade later"; and the eval (`docs/ingestion/USCIS-LIVE-SEARCH-EVAL.md`) lists must-fix-before-prod items:
+  soft (not enforced) site restriction — non-gov results leak (mitigated by the `.gov`-only citation filter
+  `_is_official_source`); citation URLs are **Google redirect links**, not raw uscis.gov; inline `[cite:N]`
+  markers leak (stripped); and a **compliance requirement** — Google's terms require the UI to render the returned
+  **"Search Suggestions" chips**, which needs front-end work.
+- **To turn on:** accept the per-request cost; finish the cascade wiring (`gov → community → web → ungrounded`);
+  add the Search-Suggestion-chip UI; then set `AI_ASSIST_WEB_SEARCH=1`.
+
+**Net:** both are viable upgrades, off for real reasons (crawl-completion + source-quality for DS-2; cost +
+UI-compliance for web-search). They **complement**, not replace, curated gov grounding.
+
 ## Milestone 2 — Official-API adapters (Phase-2 path): live/current facts
 
 **Effort: M · Risk: medium · new code, but clean official APIs.** Follows master-plan §2.3 (per-source
