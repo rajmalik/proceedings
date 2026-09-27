@@ -76,10 +76,11 @@ _EXCLUDE = re.compile(
     r"(?:/|$)", re.I,
 )
 # uscis.gov's sitemap includes hundreds of ARCHIVED monthly snapshots whose slug
-# ends in "-<n>" (e.g. .../when-to-file-...-104) — stale duplicates of a base
-# page. Drop them by default (keep the canonical/base URL); --include-archives
-# keeps them.
-_ARCHIVE_SUFFIX = re.compile(r"-\d+$")
+# is a descriptive base slug + "-<n>" (e.g. .../when-to-file-...-based-104) —
+# stale duplicates of a base page. Match a multi-token slug ending in "-<n>", so
+# we DON'T mis-flag bare form codes like "i-765" / "n-400" (single-hyphen). Drop
+# archives by default (keep the canonical base); --include-archives keeps them.
+_ARCHIVE_SUFFIX = re.compile(r"-[^-]+-\d+$")
 
 
 def _fetch(url: str, timeout: int = 25) -> bytes:
