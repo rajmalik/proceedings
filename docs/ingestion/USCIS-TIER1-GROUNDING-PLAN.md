@@ -137,6 +137,37 @@ Batch the curation (forms → green-card/family/work → citizenship/humanitaria
 chapters) until uscis.gov coverage clears the query-log misses; land the §4/§5 efficiency layer alongside
 the first batch. **Only then** move to the next agency (DOL/EOIR/CBP) on the same framework.
 
+## Operational model / deployment — cheapest, zero net-new GCP resources
+
+**Nothing new is provisioned.** The whole milestone reuses resources that already run in prod:
+
+| Concern | Reuses (existing) | New resource? |
+|---|---|---|
+| Compute / where it runs | **`immiguide-api` Cloud Run service**, via the existing internal route `POST /internal/official-reference/poll` (`official_reference_poll.poll_all`) | ❌ none |
+| Trigger / schedule | **existing weekly Cloud Scheduler job** `official-reference-poll` (Mon 07:00 ET) — uscis pages just join the run | ❌ none |
+| Grounding store | **DS-1** `imm-postings-datastore` (`doc_kind=official_reference`) | ❌ none |
+| Sidecar / ingestion | **existing GCS** `gs://imm-postings-ingestion/…` | ❌ none |
+| Dedup / freshness metadata | **existing BigQuery** `…postings.postings_metadata` (add etag/lastmod/last_checked columns) **or** existing Firestore | ❌ none (extend, don't add) |
+| Source registry | in-image `official_reference_sources.default.json`; optional **existing Firestore** override collection | ❌ none |
+| Harvest / ranking | local `scripts/curation/harvest_uscis_sitemap.py` (dev/curation tool, run on demand) | ❌ none |
+
+So: **no new Cloud Run service, no new Cloud Run Job, no new Scheduler job, no new datastore/bucket/DB.**
+
+**Two operational caveats (still no new resources):**
+- **Config-in-image → redeploy to add sources.** Today `config/` is COPYed into the image, so adding
+  uscis URLs needs a redeploy of the **existing** service (Cloud Build cost negligible). The optional
+  **Firestore override** (reuses existing Firestore — new *collection*, not a new *resource*) makes adds
+  **deploy-free**; `load_sources()` already isolates the load point.
+- **Long synchronous poll vs Cloud Run request timeout.** A large curated set fetched sequentially in one
+  HTTP request could approach Cloud Run's request timeout (default 300s). Mitigations, cheapest first,
+  **all resource-free**: (1) the §4 lastmod/ETag gating means **steady-state runs skip almost everything**
+  (fast); (2) add a `source`/batch param to the route so a big **initial backfill** runs in chunks
+  (small code change); (3) raise the service's request timeout (config). A **Cloud Run Job** would fit a
+  long batch but is **net-new** — treat as a last resort only if batch runtime becomes a real problem.
+
+**Net:** operationally this is "add config + let the existing weekly job pick it up." The only compute is
+weekly, on the existing service, and mostly no-ops after the first backfill (content-hash + lastmod/ETag).
+
 ## Non-goals (this milestone)
 - Processing times (`egov.uscis.gov` — 403/bot-blocked; needs a dedicated adapter — separate).
 - Live "search uscis.gov" (the separate chat button / live-search re-eval).
