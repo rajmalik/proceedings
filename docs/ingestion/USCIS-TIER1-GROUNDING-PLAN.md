@@ -112,8 +112,12 @@ Result: a changed page is re-tagged/re-indexed exactly once; everything else is 
 ---
 
 ## Implementation steps
-1. **Harvest script** `scripts/curation/harvest_uscis_sitemap.py` — fetch sitemap(s); rank candidates by
-   §1 signals (pull query-log misses + vocab coverage); emit a reviewable ranked candidate file.
+1. **Harvest script** `scripts/curation/harvest_uscis_sitemap.py` — ✅ **built (read-only).** Fetches the
+   uscis.gov sitemap index (~20k URLs), excludes already-grounded URLs + chrome/news/archives + archived
+   `-<n>` monthly snapshots, ranks by §1 signals (section/form/keyword weights + optional `--demand-file`
+   of query-log-miss terms + lastmod recency), and emits a ranked review list (`--format table|csv|json`,
+   `--out`). Imports nothing from the backend; touches no GCP resource. First run: ~1,287 candidates ≥
+   score 3 (down from ~3,077 before the archived-snapshot filter). **Next: human-review the top N.**
 2. **Human review + fetchability dry-run** (seed driver) → select URLs that extract clean body text.
 3. **Add verified URLs** to `official_reference_sources.default.json` (`source_system: uscis`), in
    batches by category (forms → green-card/family/work → citizenship/humanitarian → policy-manual).
