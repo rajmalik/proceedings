@@ -25,6 +25,7 @@ Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `
 | USCIS — Family (`uscis.gov/family`) | official_reference | official_reference |
 | **USCIS — F-1→H-1B→EB→I-485 pathway** (14 pages: F-1 students-and-employment, OPT, STEM OPT; H-1B specialty + cap-gap + e-registration; I-129; H-4 EAD; permanent-workers; EB-1/EB-2/EB-3; I-131 advance parole; AOS filing charts) | official_reference | official_reference |
 | **USCIS — core topics** (10 pages: GC eligibility categories hub + employment-based/family-preference/asylee GC; asylum; TPS; N-400 naturalization; citizenship & naturalization; I-90; I-539) | official_reference | official_reference |
+| **DOL OFLC — employer side of the employment path** (4 pages: Foreign Labor Certification hub, PERM, LCA H-1B/H-1B1/E-3, prevailing wage) | official_reference | official_reference |
 | ICE — SEVP/SEVIS (`ice.gov/sevis`) | official_reference | official_reference |
 | DHS — Study in the States (`studyinthestates.dhs.gov/students`) | official_reference | official_reference |
 | USCIS — Newsroom / alerts (RSS) | gov_news | gov_news |
@@ -57,7 +58,7 @@ Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `
 | USCIS — Case Status API (`developer.uscis.gov`) | P1 (ops) | function-call (authenticated, live) |
 | Federal Register (`federalregister.gov` API) | P2 (legal) | API adapter → new doc_kind |
 | eCFR — Title 8 CFR (`ecfr.gov` API) | P2 (legal) | API adapter → new doc_kind |
-| DOL — PERM/LCA/foreign labor (`dol.gov`, `flag.dol.gov`) | P2 | official_reference config |
+| DOL — remaining (`dol.gov` H-2A/H-2B programs; `flag.dol.gov` FLAG portal + public disclosure data) | P3 | official_reference config (core PERM/LCA/PWD now grounded — section A) |
 | DOJ EOIR — BIA/AAO precedent (`justice.gov/eoir`) | P2 (legal) | PDF ingest |
 | USCIS — more pages (I-129, I-539, I-90, N-400, I-131, H-1B, fees, Policy Manual) | P2 | official_reference config |
 | Federal Register — agency-scoped RSS | P1 | gov_news (Firestore registry) |

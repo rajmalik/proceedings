@@ -217,6 +217,30 @@
       "title": "Form I-539, Application to Extend/Change Nonimmigrant Status",
       "source_system": "uscis",
       "author": "USCIS"
+    },
+    {
+      "url": "https://www.dol.gov/agencies/eta/foreign-labor",
+      "title": "Foreign Labor Certification (DOL OFLC)",
+      "source_system": "dol",
+      "author": "DOL OFLC"
+    },
+    {
+      "url": "https://www.dol.gov/agencies/eta/foreign-labor/programs/permanent",
+      "title": "PERM Labor Certification (DOL) — EB-2/EB-3 employer step",
+      "source_system": "dol",
+      "author": "DOL OFLC"
+    },
+    {
+      "url": "https://www.dol.gov/agencies/eta/foreign-labor/programs/h-1b",
+      "title": "Labor Condition Application (LCA) — H-1B/H-1B1/E-3 (DOL)",
+      "source_system": "dol",
+      "author": "DOL OFLC"
+    },
+    {
+      "url": "https://www.dol.gov/agencies/eta/foreign-labor/wages",
+      "title": "Prevailing Wage Determinations (DOL National Prevailing Wage Center)",
+      "source_system": "dol",
+      "author": "DOL OFLC"
     }
   ]
 }
