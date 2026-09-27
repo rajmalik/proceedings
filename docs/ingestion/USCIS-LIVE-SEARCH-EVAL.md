@@ -116,6 +116,14 @@ Google crawls the specified `.gov` sites; our own Answer API synthesizes + cites
 search). Limitation: **basic crawl only** (freshness/coverage is Google's; no advanced extractive
 features without domain verification we can't get).
 
+> ⚠️ **Correction (for uscis.gov specifically):** the 2026-09-20 spike in
+> `USCIS-FORMS-INGESTION-PLAN.md` already proved DS-2 website search is **non-viable for uscis.gov** —
+> basic indexing grounded nothing usable, and advanced site search needs domain-ownership verification
+> we can't get. So **Option D does NOT apply to uscis.gov** (or other unowned .gov where basic indexing
+> fails). For uscis.gov the recommended path is **sitemap-scoped curated `official_reference` ingest
+> into DS-1** — see `USCIS-TIER1-GROUNDING-PLAN.md`. Option D may still suit .gov domains where basic
+> website indexing does ground usefully; verify per domain before relying on it.
+
 ### Re-ranked options vs. the goals
 | Option | In-app (no off-app chips) | Citations | Privacy (no data logging) | Freshness | Effort | Fit |
 |---|---|---|---|---|---|---|

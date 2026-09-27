@@ -23,6 +23,8 @@ Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `
 | USCIS — EAD (`uscis.gov/green-card/.../employment-authorization-document`) | official_reference | official_reference |
 | USCIS — Visa Availability & Priority Dates (`uscis.gov/green-card/.../visa-availability-and-priority-dates`) | official_reference | official_reference |
 | USCIS — Family (`uscis.gov/family`) | official_reference | official_reference |
+| **USCIS — F-1→H-1B→EB→I-485 pathway** (14 pages: F-1 students-and-employment, OPT, STEM OPT; H-1B specialty + cap-gap + e-registration; I-129; H-4 EAD; permanent-workers; EB-1/EB-2/EB-3; I-131 advance parole; AOS filing charts) | official_reference | official_reference |
+| **USCIS — core topics** (10 pages: GC eligibility categories hub + employment-based/family-preference/asylee GC; asylum; TPS; N-400 naturalization; citizenship & naturalization; I-90; I-539) | official_reference | official_reference |
 | ICE — SEVP/SEVIS (`ice.gov/sevis`) | official_reference | official_reference |
 | DHS — Study in the States (`studyinthestates.dhs.gov/students`) | official_reference | official_reference |
 | USCIS — Newsroom / alerts (RSS) | gov_news | gov_news |
@@ -47,7 +49,7 @@ Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `
 
 | Source | Priority | Proposed method |
 |---|---|---|
-| **Sub-pages of covered USCIS pages** — `uscis.gov/green-card/*` (green-card-eligibility, how-to-apply, consular-processing, maintaining/replacing/rights), `uscis.gov/family/*` (family-of-us-citizens, spouse/fiancé, adoption), `uscis.gov/working-in-the-united-states/*` (temporary/permanent workers, students-and-employment, employers/I-9) | P1–P2 | official_reference config (curate from `uscis.gov/sitemap`) or DS-2 crawl |
+| **Remaining USCIS long tail** — pathway + core topics now grounded (section A); REMAINING: niche GC-eligibility categories (broadcaster, NATO-6, U/T/SIJ victims, religious worker, etc.), consular-processing, maintaining/replacing residence, family-of-US-citizens subpages, citizenship study materials | P2–P3 | official_reference config (curate from `harvest_uscis_sitemap.py`; sharper once a `--demand-file` of query-log misses is wired) |
 | **Sub-pages of DHS Study in the States** — `studyinthestates.dhs.gov/students/study/*`, `/stem-opt-hub`, `/sevp-portal-help`, `/sevis-help-hub/*`, `/schools` | P2 | official_reference config |
 | **Sub-pages of ICE SEVIS** — `ice.gov/sevis/overview`, `/students`, `/schools`, `/schools/reg`, `/schools/school-alerts` | P2 | official_reference config |
 | State Dept — Visa Bulletin (`travel.state.gov`) | P1 (ops) | official_reference adapter (resilient fetch) |
