@@ -56,12 +56,11 @@ Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `
 | State Dept — Visa Bulletin (`travel.state.gov`) | P1 (ops) | official_reference adapter (resilient fetch) |
 | USCIS — Processing times (`egov.uscis.gov/processing-times`) | P1 (ops) | adapter (fetch decision pending) |
 | USCIS — Case Status API (`developer.uscis.gov`) | P1 (ops) | function-call (authenticated, live) |
-| Federal Register (`federalregister.gov` API) | P2 (legal) | API adapter → new doc_kind |
+| **Federal Register — immigration rules/notices** (`federalregister.gov` JSON API; agencies USCIS, DHS parent, EOIR, ICE; types RULE/PRORULE/NOTICE) — NEXT PICK | P1 (latest) | FR API adapter → gov_news: drop PRA "Information Collection"/Privacy Act/Meeting titles; DHS-parent needs immigration-keyword filter; text from API abstract + raw_text (not the USCIS Drupal selector). ~40 relevant docs/yr |
 | eCFR — Title 8 CFR (`ecfr.gov` API) | P2 (legal) | API adapter → new doc_kind |
-| DOL — remaining (`dol.gov` H-2A/H-2B programs; `flag.dol.gov` FLAG portal + public disclosure data) | P3 | official_reference config (core PERM/LCA/PWD now grounded — section A) |
+| DOL — remaining (`dol.gov` H-2A/H-2B programs; `flag.dol.gov` FLAG portal + public disclosure data) | P3 | official_reference config (core PERM/LCA/PWD now grounded — section A). PERM FAQs page fetches ~99w (stub — not groundable); `dol.gov/rss` unscoped; DOL-ETA FR rules 0/8 immigration |
 | DOJ EOIR — BIA/AAO precedent (`justice.gov/eoir`) | P2 (legal) | PDF ingest |
 | USCIS — remaining forms/topics (fees, Policy Manual chapters) | P2 | official_reference config |
-| Federal Register — agency-scoped RSS | P1 | gov_news (Firestore registry) |
 | CBP (`cbp.gov`) | P3 | official_reference config |
 | DHS OHSS statistics (`ohss.dhs.gov`) | P3 | official_reference config |
 | regulations.gov | P3 | API adapter |
@@ -77,3 +76,4 @@ Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `
 | Law-firm / guide sites — boundless.com, immigrationdirect.com | Non-gov, non-authoritative; only present in the default-off DS-2 crawl. Excluded from the authenticated gov corpus. |
 | Community immigration MCP servers (uscis-mcp, immigration-mcp, us-immigration-mcp) | Unofficial, no warranty, self-hosted; e.g. processing times sourced from a non-gov aggregator. Not authenticated. |
 | immigrationtimes.org | Unofficial aggregator (used by uscis-mcp); not a government source. |
+| Federal Register — raw agency RSS as-is (e.g. `documents.rss?conditions[agencies][]=u-s-citizenship-and-immigration-services`) | ~97% PRA "Information Collection" notices (42/43 on 2026-09-27) → would outrank real form pages in gov tier; ICE/EOIR RSS empty. Use the filtered FR API adapter (section B) instead. |
