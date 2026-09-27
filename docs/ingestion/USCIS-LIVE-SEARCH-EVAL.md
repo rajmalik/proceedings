@@ -83,3 +83,73 @@ existing manual "Search on USCIS.gov" button into an inline, cited answer.
   chips in the UI.
 - **Keep A on the shelf** (this doc) for when strict `site:uscis.gov`-only fidelity
   and raw citations are required; it's a ~1-page CSE + API-key setup away.
+
+---
+
+## Re-evaluation — 2026-09-27 (goals changed; recommendation flips)
+
+Revisited against the now-explicit product goals: **authenticated, government-first, latest, and a
+one-stop shop that keeps users in-app**, for a **privacy-sensitive** immigration audience. Three facts
+(verified from current Google docs) change the calculus since the 2026-09-20 spike:
+
+1. **Search-Suggestion chips are MANDATORY for Grounding-with-Google-Search (Option B).** Google's
+   terms require displaying them **exactly as provided** (no restyling), **same width** as the answer,
+   **whenever** the grounded response shows. Those chips push users **to Google Search** — the opposite
+   of a one-stop shop.
+2. **Option B citations are Google *redirect* links** (`vertexaisearch.cloud.google.com/…`), not raw
+   `uscis.gov` — weakens the "authenticated source" UX/trust.
+3. **Option B stores prompts + outputs for 30 days with no opt-out** (Google terms) — a real
+   **data-privacy** problem for immigration queries.
+4. **"Advanced" website indexing requires domain verification** even for third-party sites — we don't
+   own `uscis.gov`, so advanced features (extractive answers, follow-ups) are **not available**; only
+   **basic** website crawl is (which is exactly what our provisioned **DS-2** already does).
+
+### New option not in the original eval
+**Option C — Web Grounding for Enterprise (Vertex).** Grounds on a **subset of the Google index**,
+built for **highly-regulated industries**: **no logging of customer data**, ML processing in US/EU
+multi-regions, **VPC-SC support**. Materially better privacy posture than Option B for this product;
+confirm (a) whether it still requires the Search-Suggestion chips and (b) pricing.
+
+**Option D — DS-2 basic website data store restricted to `.gov` (already provisioned, currently OFF).**
+Google crawls the specified `.gov` sites; our own Answer API synthesizes + cites → **in-app answer, raw
+`.gov` citations, no mandatory chips, no per-request grounding fee** (it's a data store, not live
+search). Limitation: **basic crawl only** (freshness/coverage is Google's; no advanced extractive
+features without domain verification we can't get).
+
+### Re-ranked options vs. the goals
+| Option | In-app (no off-app chips) | Citations | Privacy (no data logging) | Freshness | Effort | Fit |
+|---|---|---|---|---|---|---|
+| **D — DS-2 `.gov` basic crawl** (provisioned) | ✅ | ✅ raw `.gov` | ✅ (datastore) | crawl-cadence (Google) | **low** (restrict domains + enable) | **best immediate** |
+| **C — Web Grounding for Enterprise** | ❔ confirm chips | redirect | ✅ no logging, VPC-SC | ✅ live | med (new integration) | **best for live+privacy** |
+| **A — Custom Search `site:uscis.gov` + synth** | ✅ | ✅ raw uscis.gov | ✅ (our synth) | live | med (CSE + key + synth) | strict single-site alt |
+| **B — Grounding w/ Google Search** | ❌ mandatory chips | ❌ redirect | ❌ 30-day logging | ✅ live | low | **last resort only** |
+
+### Revised recommendation
+- **Demote Option B** from "ship it" to **last-resort** — mandatory off-app chips + redirect citations
+  + 30-day data logging conflict with in-app, authenticated, and privacy goals.
+- **Recommended: enable DS-2 restricted to `.gov` (Option D)** as the long-tail tier-3 — it's already
+  provisioned, in-app, gives raw `.gov` citations, no chips, no per-request fee. Immediate, low-effort,
+  goal-aligned.
+- **Investigate Option C (Web Grounding for Enterprise)** in parallel as the *live/fresh* privacy-safe
+  upgrade (confirm chip requirement + cost) — the right long-term answer if we want always-live coverage.
+- **Keep Option A** as the strict single-site alternative if raw-uscis.gov-only fidelity is required.
+
+## Plan — recommended option (D: DS-2 `.gov`-restricted, enable the provisioned tier)
+1. **Restrict domains to `.gov`:** in `backend/scripts/provision_ds2_website.py`, set `PUBLIC_DOMAINS` to
+   only authoritative gov sites (`uscis.gov`, `travel.state.gov`, `dhs.gov`, `dol.gov`, `ice.gov`,
+   `studyinthestates.dhs.gov`, `ecfr.gov`, `federalregister.gov`); **drop** `boundless.com`,
+   `immigrationdirect.com`. Re-provision (idempotent) so target sites re-crawl.
+2. **Confirm crawl health:** wait for target sites to read `SUCCEEDED` (`report_indexing`), verify a
+   `site:uscis.gov`-style query returns results.
+3. **Enable the tier:** set `GCP_VERTEX_PUBLIC_ENGINE_ID` = the DS-2 engine id in the backend env
+   (Cloud Run) so `api.py:_grounded_answer` wires the **tier-3 fallback** (`gov DS-1 → community → DS-2
+   .gov crawl`). Keep it clearly labelled as a public-web tier below curated DS-1.
+4. **Guardrails/UX:** label the tier-3 source, link raw `.gov` citations, keep the "not legal advice"
+   guardrail; monitor answer quality vs curated DS-1.
+5. **Tests/acceptance:** a long-tail question not covered by curated DS-1 (e.g. naturalization/cap-gap)
+   returns an in-app answer citing a `.gov` page, with **no** off-app chips and **no** 30-day logging.
+6. **Then:** spike **Option C (Web Grounding for Enterprise)** to compare freshness/quality/cost/chips
+   before deciding whether it supersedes D as the live tier.
+
+**Registry impact (per the maintenance rule):** when D is enabled, move the DS-2 crawl row in
+`GROUNDING-SOURCES.md` from "wired but OFF" to section A (restricted to the `.gov` set).
