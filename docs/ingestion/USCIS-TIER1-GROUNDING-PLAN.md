@@ -1,0 +1,144 @@
+# USCIS.gov Tier-1 grounding — Milestone 1.5a (sitemap-scoped curated ingest)
+
+Branch: `feature/grounding-uscis`. Closes the **uscis.gov** grounding loop before other agencies.
+Builds on `USCIS-FORMS-INGESTION-PLAN.md` (16 pages already grounded) and `GROUNDING-INGESTION-PLAN.md`.
+Registry: reflect changes in `GROUNDING-SOURCES.md` as pages land.
+
+## Decision (settled by prior evidence)
+
+**Tier-1 grounding of uscis.gov = curated `official_reference` ingest into DS-1** (`doc_kind=
+official_reference`, gov tier, `source_tier="gov"`). Not the DS-2 website crawl, not live search:
+- The 2026-09-20 spike (`USCIS-FORMS-INGESTION-PLAN.md` §"Spike (a) outcome") proved the **Vertex AI
+  Search website data store is non-viable for uscis.gov** — effective grounding needs *advanced* site
+  search, which requires **domain-ownership verification we cannot get** for uscis.gov; basic indexing
+  grounded nothing usable. (This supersedes the generic "Option D — enable DS-2 `.gov` crawl" idea in
+  `USCIS-LIVE-SEARCH-EVAL.md` **for uscis.gov specifically**.)
+- Live Google Search grounding is ruled out for the authenticated in-app goal (mandatory off-app Search
+  chips, redirect citations, 30-day data logging — see the live-search re-eval).
+- The forms plan itself names **"option-B (sitemap-scoped ingest)"** as the viable broad path (no domain
+  ownership needed). **This milestone is that path.**
+
+## Scope
+
+Extend the proven pipeline to cover uscis.gov **broadly but curated**: the high-value pages + their
+sub-trees, chosen by real demand, ingested into DS-1, refreshed efficiently. One agency (uscis.gov) end
+to end, with a **framework that carries to the next agencies** unchanged.
+
+---
+
+## 1. How to determine the high-value pages
+
+Candidates come from the **uscis.gov sitemap**; ranking comes from **our own demand + coverage signals**
+(not guesswork). A harvest script proposes a ranked list; a human reviews before anything is added.
+
+**Candidate source:** `uscis.gov/sitemap` (HTML index) and `uscis.gov/sitemap.xml` (probe — most .gov
+publish XML sitemaps with `<loc>`, `<lastmod>`, `<priority>`). Harvest all uscis.gov URLs + lastmod.
+
+**Ranking signals (combine, highest first):**
+1. **Demand — our query logs (best signal):** `query.py`'s Firestore Q&A log + AI-Assist **gov-tier
+   misses / fallbacks** (questions where DS-1 didn't ground and we fell through). These are the *exact*
+   pages whose absence hurts users. Mine top-missed topics → map to uscis pages.
+2. **Coverage of our controlled vocab:** `tags-cleaned/` visa/form categories — ensure every tag we can
+   assign has its authoritative uscis page grounded (forms, statuses, categories).
+3. **Known high-traffic forms/topics** not yet grounded: I-129, I-539, I-90, N-400, I-131, H-1B,
+   citizenship/naturalization, humanitarian, working-in-the-US, green-card-eligibility, key **Policy
+   Manual** chapters.
+4. **Sitemap hints:** `<priority>` / recency of `<lastmod>`.
+
+**Process (curated, auditable):** `scripts/curation/harvest_uscis_sitemap.py` → emits a **ranked
+candidate list** (`url, section, lastmod, score, why`) as CSV/JSON for **human review** → fetchability
+dry-run each keeper (`scripts/seed_official_reference.py --url … --source-system uscis --title "…"`,
+≥ `_MIN_WORDS` real body text) → add survivors to the config. **Never auto-add** (trust/stability over
+coverage — the pipeline's stated non-goal).
+
+## 2. Cost
+
+Cheapest durable path — **no per-query grounding fee** (unlike live search) and only-on-change compute:
+- **Per new/changed page:** 1 Gemini `_extract()` tagging call (flash, short prompt) + a GCS write + a
+  Vertex `documents.import` + a BigQuery row. **Only on change** (content-hash skip), so most weekly runs
+  are near-no-ops.
+- **Steady state:** a few hundred uscis pages, tagged once then re-tagged only when a page actually
+  changes → **Gemini tagging ≈ a few $/month at most**; DS-1 storage for small text docs is **negligible**
+  (Vertex AI Search Enterprise edition is already provisioned for DS-1); per-search query cost is
+  **unchanged** (we already pay it). Fetch/GCS/BigQuery are negligible.
+- **One-time:** initial ingest tags every added page once (bounded by the curated set size).
+- **Vs. alternatives:** avoids live-search per-request grounding fees and the enterprise website-search
+  complexity that the spike showed doesn't even work for uscis.gov.
+
+*(Firm the numbers once the candidate count is known; assumptions above: Gemini flash tagging, curated
+set in the low hundreds, weekly poll.)*
+
+## 3. Flexibility / config framework (carries to the next agencies)
+
+Reuse the **config-driven registry** (`config/official_reference_sources.default.json`, `load_sources()`
+re-read each run) — adding uscis pages or a **new agency next phase** is a JSON edit, **no code**
+(`source_system` already namespaces agencies). Proposed **backward-compatible** enhancements for scale:
+- **Firestore override for the registry** (the forms plan's named follow-up) → **deploy-free** source
+  changes (today the JSON ships in the image → needs a redeploy). `load_sources()` already isolates the
+  load point.
+- **Optional schema fields** (ignored if absent): `category`, `refresh_cadence` (drives §5), and
+  per-URL freshness metadata (`etag`/`last_modified`/`lastmod`) for §4.
+- **Sitemap-section support:** a config entry may point at a sitemap section; the harvest script expands
+  it into explicit, human-reviewed URL entries (scales curation without a live crawler).
+- Framework is agency-agnostic: DOL/EOIR/CBP later reuse the same file + poller.
+
+## 4. Efficiency — incremental change detection (don't re-index unchanged pages)
+
+Layered, cheapest-check-first; today's content-hash is the backstop:
+1. **Sitemap `<lastmod>` diff** — store last-seen `lastmod` per URL; **fetch only URLs whose lastmod
+   advanced**. (Skips the vast static majority before any download.)
+2. **HTTP conditional GET** — send `If-None-Match` (ETag) / `If-Modified-Since`; a **304** → skip download
+   entirely. Persist `ETag`/`Last-Modified` per URL (BigQuery metadata or the Firestore registry).
+3. **Content-hash** (already implemented in `publish_official_reference_item(skip_if_unchanged=True)`) —
+   final backstop: a changed body upserts the **same** doc in place; unchanged → no-op. Catches changes
+   not reflected in lastmod/ETag.
+
+Result: a changed page is re-tagged/re-indexed exactly once; everything else is a cheap skip.
+
+## 5. Efficiency — crawl cadence (don't poll static pages often)
+
+- **Base:** the existing weekly Cloud Scheduler job `official-reference-poll` (Mon 07:00 ET) already
+  refreshes the registry; content-hash makes re-runs cheap. **No new job needed** (uscis joins the run).
+- **Enhancements:**
+  - **Per-source `refresh_cadence`** in config (default **monthly** for stable form/policy pages;
+    **weekly** for volatile ones) — the poller skips a source whose `last_checked` is within its cadence.
+  - Combined with **§4 sitemap-lastmod + conditional GET**, static pages are effectively checked rarely
+    and re-indexed only on real change.
+- **Recommendation:** keep the single weekly job; add per-source `refresh_cadence` (default monthly) +
+  the §4 lastmod/ETag gates → efficient by construction, no scheduler sprawl. (News/alerts stay on the
+  separate `gov_news` RSS path; volatile data like processing times needs its own adapter — out of this
+  milestone.)
+
+---
+
+## Implementation steps
+1. **Harvest script** `scripts/curation/harvest_uscis_sitemap.py` — fetch sitemap(s); rank candidates by
+   §1 signals (pull query-log misses + vocab coverage); emit a reviewable ranked candidate file.
+2. **Human review + fetchability dry-run** (seed driver) → select URLs that extract clean body text.
+3. **Add verified URLs** to `official_reference_sources.default.json` (`source_system: uscis`), in
+   batches by category (forms → green-card/family/work → citizenship/humanitarian → policy-manual).
+4. **Efficiency (poller)** — add sitemap-`lastmod` gating + conditional GET (ETag/Last-Modified) +
+   per-source `refresh_cadence`; unit tests (deterministic: 304 → skip; changed → upsert; cadence → skip).
+5. **Flexibility (optional, recommended)** — Firestore override for the registry (deploy-free adds).
+6. **Deploy + verify** — backend redeploy (config in-image until step 5), trigger the poll, verify via
+   GCS + BigQuery (no Pub/Sub), smoke previously-ungrounded uscis questions (from the query-log misses)
+   → now grounded, cited (raw uscis.gov), `tier=gov`.
+7. **Update `GROUNDING-SOURCES.md`** section A as pages land (per the maintenance rule).
+
+## Acceptance (close the uscis.gov loop)
+- A curated, human-reviewed set of high-value uscis.gov pages + key sub-trees is grounded in DS-1
+  (gov tier), chosen from **real query-log demand** + vocab coverage.
+- Previously-ungrounded uscis questions now return **grounded, cited** gov-tier answers.
+- Weekly poll runs are **near-no-ops** (only changed pages re-indexed), via lastmod/ETag/content-hash.
+- Adding another uscis page — or the next agency — is a **config edit**, no code.
+
+## Sequencing
+Batch the curation (forms → green-card/family/work → citizenship/humanitarian → policy-manual key
+chapters) until uscis.gov coverage clears the query-log misses; land the §4/§5 efficiency layer alongside
+the first batch. **Only then** move to the next agency (DOL/EOIR/CBP) on the same framework.
+
+## Non-goals (this milestone)
+- Processing times (`egov.uscis.gov` — 403/bot-blocked; needs a dedicated adapter — separate).
+- Live "search uscis.gov" (the separate chat button / live-search re-eval).
+- DS-2 website crawl for uscis.gov (proven non-viable — domain ownership).
+- New agencies (next phase, same framework).
