@@ -172,6 +172,29 @@ So: **no new Cloud Run service, no new Cloud Run Job, no new Scheduler job, no n
 **Net:** operationally this is "add config + let the existing weekly job pick it up." The only compute is
 weekly, on the existing service, and mostly no-ops after the first backfill (content-hash + lastmod/ETag).
 
+## Deferred — demand-signal ranking (`--demand-file`) — revisit when query volume grows
+
+**Decision (2026-09-27): deferred.** Current AI-Assist query volume is low, so a demand file derived from
+real user misses would be too thin to rank the long tail meaningfully. Revisit once there's meaningful
+query traffic. Until then, curate the remaining long tail from the controlled tag vocab / known top
+topics (heuristic harvester ranking).
+
+**Agreed design for when we build it** (so it's pick-up-ready):
+- **Signal = misses only** — read the Firestore Q&A log (`query.save_qa_pair`), filter to
+  `is_fallback == True` / `source_tier == "ungrounded"` (the exact gov-tier gaps). Optionally add light
+  all-volume weighting later.
+- **Question → terms via our controlled vocab** — map free-text questions to `tags-cleaned/` tags +
+  form-number regex (e.g. `i-765`, `h-1b`, `opt`, `naturalization`), so terms match the URL slugs the
+  harvester scores. (Not raw n-gram frequency.)
+- **Privacy** — emit **only aggregated `term,count`** (no raw questions, no user IDs); the demand file
+  lives in scratch / gitignored (never committed).
+- **Source/infra** — a read-only `scripts/curation/export_query_demand.py` over the existing Firestore
+  Q&A collection (no new GCP resource; ADC read). Defaults: last **90 days**, term freq **≥3** (flags).
+- **Flow** — `export_query_demand.py` → `demand.csv` → `harvest_uscis_sitemap.py --demand-file` →
+  demand-ranked candidate CSV for human review (no auto-add).
+- **Trigger to revisit:** meaningful AI-Assist query volume with a usable count of `ungrounded`/fallback
+  misses.
+
 ## Non-goals (this milestone)
 - Processing times (`egov.uscis.gov` — 403/bot-blocked; needs a dedicated adapter — separate).
 - Live "search uscis.gov" (the separate chat button / live-search re-eval).
