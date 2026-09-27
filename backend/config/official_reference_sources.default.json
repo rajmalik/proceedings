@@ -73,6 +73,90 @@
       "title": "Family-based immigration (USCIS)",
       "source_system": "uscis",
       "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/students-and-exchange-visitors/students-and-employment",
+      "title": "F-1 Students and Employment (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/students-and-exchange-visitors/optional-practical-training-opt-for-f-1-students",
+      "title": "Optional Practical Training (OPT) for F-1 Students",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/students-and-exchange-visitors/optional-practical-training-extension-for-stem-students-stem-opt",
+      "title": "STEM OPT Extension for F-1 Students",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/h-1b-specialty-occupations",
+      "title": "H-1B Specialty Occupations (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/temporary-workers/h-1b-specialty-occupations/extension-of-post-completion-optional-practical-training-opt-and-f-1-status-for-eligible-students",
+      "title": "Cap-Gap Extension of OPT and F-1 Status (H-1B)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/temporary-workers/h-1b-specialty-occupations/h-1b-electronic-registration-process",
+      "title": "H-1B Electronic Registration Process",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/i-129",
+      "title": "Form I-129, Petition for a Nonimmigrant Worker (H-1B)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/temporary-workers/h-1b-specialty-occupations/employment-authorization-for-certain-h-4-dependent-spouses",
+      "title": "Employment Authorization for Certain H-4 Dependent Spouses",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/permanent-workers",
+      "title": "Permanent Workers — Employment-Based Immigration (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/permanent-workers/employment-based-immigration-first-preference-eb-1",
+      "title": "Employment-Based Immigration: First Preference (EB-1)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/permanent-workers/employment-based-immigration-second-preference-eb-2",
+      "title": "Employment-Based Immigration: Second Preference (EB-2)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/working-in-the-united-states/permanent-workers/employment-based-immigration-third-preference-eb-3",
+      "title": "Employment-Based Immigration: Third Preference (EB-3)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/i-131",
+      "title": "Form I-131, Application for Travel Documents (Advance Parole)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/green-card/green-card-processes-and-procedures/visa-availability-priority-dates/adjustment-of-status-filing-charts-from-the-visa-bulletin",
+      "title": "Adjustment of Status Filing Charts from the Visa Bulletin",
+      "source_system": "uscis",
+      "author": "USCIS"
     }
   ]
 }
