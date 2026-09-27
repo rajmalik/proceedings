@@ -157,6 +157,66 @@
       "title": "Adjustment of Status Filing Charts from the Visa Bulletin",
       "source_system": "uscis",
       "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/green-card/green-card-eligibility-categories",
+      "title": "Green Card Eligibility Categories (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/green-card/green-card-eligibility/green-card-for-employment-based-immigrants",
+      "title": "Green Card for Employment-Based Immigrants",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/green-card/green-card-eligibility/green-card-for-family-preference-immigrants",
+      "title": "Green Card for Family Preference Immigrants",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/green-card/green-card-eligibility/green-card-for-asylees",
+      "title": "Green Card for Asylees",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/humanitarian/refugees-and-asylum/asylum",
+      "title": "Asylum (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/humanitarian/temporary-protected-status",
+      "title": "Temporary Protected Status (TPS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/n-400",
+      "title": "Form N-400, Application for Naturalization",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/citizenship/learn-about-citizenship/citizenship-and-naturalization",
+      "title": "Citizenship and Naturalization (USCIS)",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/i-90",
+      "title": "Form I-90, Application to Replace Permanent Resident Card",
+      "source_system": "uscis",
+      "author": "USCIS"
+    },
+    {
+      "url": "https://www.uscis.gov/i-539",
+      "title": "Form I-539, Application to Extend/Change Nonimmigrant Status",
+      "source_system": "uscis",
+      "author": "USCIS"
     }
   ]
 }
