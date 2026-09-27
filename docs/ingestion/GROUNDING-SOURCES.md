@@ -60,7 +60,7 @@ Legend — method: `official_reference` / `gov_news` = the two DS-1 pollers · `
 | eCFR — Title 8 CFR (`ecfr.gov` API) | P2 (legal) | API adapter → new doc_kind |
 | DOL — remaining (`dol.gov` H-2A/H-2B programs; `flag.dol.gov` FLAG portal + public disclosure data) | P3 | official_reference config (core PERM/LCA/PWD now grounded — section A) |
 | DOJ EOIR — BIA/AAO precedent (`justice.gov/eoir`) | P2 (legal) | PDF ingest |
-| USCIS — more pages (I-129, I-539, I-90, N-400, I-131, H-1B, fees, Policy Manual) | P2 | official_reference config |
+| USCIS — remaining forms/topics (fees, Policy Manual chapters) | P2 | official_reference config |
 | Federal Register — agency-scoped RSS | P1 | gov_news (Firestore registry) |
 | CBP (`cbp.gov`) | P3 | official_reference config |
 | DHS OHSS statistics (`ohss.dhs.gov`) | P3 | official_reference config |
