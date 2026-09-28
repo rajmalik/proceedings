@@ -9,6 +9,7 @@ POST /internal/gov-news/poll route (§5) — this script is for manual runs
 
 Usage:
   cd backend && ../.venv/bin/python ../scripts/curation/poll_gov_news.py [--source uscis] [--dry-run]
+  backfill: ... --source federal-register --since 2024-09-27 [--max-publish 200] [--dry-run]
 """
 
 from __future__ import annotations
@@ -39,6 +40,11 @@ def _print_summary(r: dict) -> None:
         print(f"  FAILED: {f['title']} — {f['error']}")
     print(f"{r['source']}: new={r['new']} edited={r['edited']} "
           f"unchanged={r['unchanged']} failed={r['failed']}")
+    # Structured-API sources (federalregister_api) also report their
+    # deterministic filter + per-run-cap counters.
+    extra = {k: v for k, v in r.items() if k.startswith("filtered_") or k == "deferred"}
+    if extra:
+        print("  " + " ".join(f"{k}={v}" for k, v in extra.items()))
 
 
 def main() -> int:
@@ -52,9 +58,16 @@ def main() -> int:
     ap.add_argument("--force", action="store_true",
                      help="republish every item regardless of BigQuery dedup state — "
                           "corrective runs only, not for normal use")
+    ap.add_argument("--since", default="",
+                    help="federalregister_api sources only: backfill from YYYY-MM-DD "
+                         "(default: the adapter's rolling lookback window)")
+    ap.add_argument("--max-publish", type=int, default=None,
+                    help="federalregister_api sources only: override the per-run publish cap "
+                         "(backfill; the scheduled HTTP route always uses the config cap)")
     args = ap.parse_args()
 
-    results = poll_all(source_slug=args.source or "", dry_run=args.dry_run, force=args.force)
+    results = poll_all(source_slug=args.source or "", dry_run=args.dry_run, force=args.force,
+                       since=args.since, max_publish=args.max_publish)
     for r in results:
         _print_summary(r)
     return 0
