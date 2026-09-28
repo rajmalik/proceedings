@@ -439,6 +439,403 @@ def group_e2e():
         search_client.answer_query = orig
 
 
+# ---------------------------------------------------------------------------
+# Coverage-gap groups (added after `coverage run --branch`, 2026-09-27)
+# ---------------------------------------------------------------------------
+
+class _Resp:
+    def __init__(self, payload=None, text="", status=200):
+        self._p, self.text, self.status = payload, text, status
+
+    def raise_for_status(self):
+        if self.status >= 400:
+            raise fr.requests.HTTPError(f"{self.status}")
+
+    def json(self):
+        return self._p
+
+
+def group_http():
+    print("\nI — HTTP helpers + pagination + selector params (real code paths, requests stubbed)")
+    seen = []
+    orig = fr.requests.get
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        seen.append({"url": url, "params": params, "headers": headers, "timeout": timeout})
+        if url.endswith(".txt"):
+            return _Resp(text="<pre>raw</pre>", status=404 if "missing" in url else 200)
+        return _Resp({"results": [{"document_number": "x"}]}, status=500 if "boom" in url else 200)
+    fr.requests.get = fake_get
+    try:
+        check("I1 _get_json returns parsed JSON", fr._get_json("https://api/documents.json", {"a": 1})["results"][0]
+              ["document_number"] == "x")
+        check("I2 polite UA + timeout on every request",
+              seen[-1]["headers"]["User-Agent"].startswith("meridianjourney-grounding-bot") and seen[-1]["timeout"] == 60)
+        check("I3 _get_text returns body", fr._get_text("https://fr/raw/a.txt") == "<pre>raw</pre>")
+        for label, call in (("I4 HTTP error raises (json)", lambda: fr._get_json("https://boom", {})),
+                            ("I5 HTTP error raises (text)", lambda: fr._get_text("https://fr/missing.txt"))):
+            try:
+                call()
+                check(label, False)
+            except fr.requests.HTTPError:
+                check(label, True)
+    finally:
+        fr.requests.get = orig
+
+    calls = []
+
+    def paged_json(url, params):
+        calls.append(params)
+        page = params["page"]
+        return {"results": [{"document_number": f"d{page}"}], "next_page_url": f"p{page + 1}" if page < 3 else None}
+    o = fr._get_json
+    fr._get_json = paged_json
+    try:
+        out = fr._paged(CFG, {"x": 1})
+        check("I6 pagination follows next_page_url to the end", [d["document_number"] for d in out] == ["d1", "d2", "d3"])
+        p = calls[0]
+        check("I7 page params: per_page=1000, order=oldest, all fields requested",
+              p.get("per_page") == 1000 and p.get("order") == "oldest" and set(fr._FIELDS) <= set(p["fields[]"])
+              and {"abstract", "raw_text_url", "regulation_id_numbers", "correction_of"} <= set(p["fields[]"]))
+        calls.clear()
+        fr._get_json = lambda url, params: (calls.append(1) or {"results": [], "next_page_url": "again"})
+        fr._paged(CFG, {})
+        check("I8 hard stop at 20 pages on a runaway next_page_url", len(calls) == 20, str(len(calls)))
+    finally:
+        fr._get_json = o
+
+    stub = Stub([doc("2026-7", cfr=((8, "214"), (20, "655")))])  # hit by TWO selectors
+    with stub:
+        got = fr.fetch_candidates(CFG, "2026-09-01")
+    rule_calls = [c for c in stub.json_calls if c.get("conditions[type][]") == ["RULE", "PRORULE"]]
+    notice_calls = [c for c in stub.json_calls if c.get("conditions[type][]") == ["NOTICE"]]
+    check("I9 one API query per rule selector + one notice query",
+          len(rule_calls) == len(CFG["rule_selectors"]) and len(notice_calls) == 1)
+    check("I10 whole-title selector sends no cfr part; part selectors do",
+          any(c["conditions[cfr][title]"] == 8 and "conditions[cfr][part]" not in c for c in rule_calls)
+          and any(c.get("conditions[cfr][part]") == "656" for c in rule_calls))
+    check("I11 every query is date-bounded by `since`",
+          all(c["conditions[publication_date][gte]"] == "2026-09-01" for c in stub.json_calls))
+    check("I12 notice query targets exactly the configured agencies",
+          notice_calls[0]["conditions[agencies][]"] == CFG["notice_agencies"])
+    check("I13 doc matched by two selectors is a single candidate", list(got) == ["2026-7"])
+
+
+def group_filter_regressions():
+    print("\nJ — filter regressions: real titles from the 24-month dry run (golden set) + L2 scope")
+    kept = [  # (type, action, title, agencies, cfr)
+        ("Notice", "Notice.", "Termination of the Designation of Haiti for Temporary Protected Status", (DHS, USCIS), ()),
+        ("Notice", "Notice of extension of Temporary Protected Status designation.",
+         "Extension of Lebanon Designation for Temporary Protected Status", (DHS, USCIS), ()),
+        ("Notice", "Notice.", "Employment Authorization for Lebanese F-1 Nonimmigrant Students Experiencing Severe Economic Hardship",
+         (DHS, USCIS), ()),
+        ("Notice", "Notice.", "Notice of Implementation of 2025 Naturalization Civics Test", (DHS, USCIS), ()),
+        ("Notice", "Notice of inflationary fee adjustment.", "Inflation Adjustment to HR-1 Immigration Fees", (DHS, USCIS), ()),
+        ("Notice", "Notice.", "Termination of Family Reunification Parole Processes for Colombians, Cubans, Ecuadorians",
+         (DHS, USCIS), ()),
+        ("Rule", "Final rule.", "Weighted Selection Process for Registrants and Petitioners Seeking To File Cap-Subject H-1B Petitions",
+         (DHS,), ((8, "214"),)),
+        ("Proposed Rule", "Proposed rule.", "Fee for Certain H-1B Petitions", (DHS,), ((8, "103"), (8, "214"))),
+        ("Rule", "Interim final rule.", "Removal of the Automatic Extension of Employment Authorization Documents",
+         (DHS,), ((8, "274a"),)),
+        ("Rule", "Final rule.", "Public Charge Ground of Inadmissibility", (DHS,), ((8, "103"), (8, "212"))),
+        ("Rule", "Final rule.", "Visas: Visa Bond Program", (STATE,), ((22, "41"),)),
+        ("Rule", "Interim final rule.", "Adverse Effect Wage Rate Methodology for the Temporary Employment of H-2A Nonimmigrants",
+         (DOL,), ((20, "655"),)),
+        ("Rule", "Final rule.", "Inflation Adjustment for EOIR OBBBA Fees; Fiscal Year 2027",
+         ({"slug": "executive-office-for-immigration-review"},), ((8, "1003"),)),
+    ]
+    dropped = [  # (type, action, title, agencies, cfr, expected_reason)
+        ("Notice", "60-day notice.", "Extension, Without Change, of a Currently Approved Collection: Biographic Information",
+         (USCIS,), (), "filtered_pra"),
+        ("Notice", "30-Day notice.", "Flight Manifest/Billing Agreement",
+         ({"slug": "u-s-immigration-and-customs-enforcement"},), (), "filtered_pra"),
+        ("Notice", "Notice of a modified system of records.", "Privacy Act of 1974; System of Records", (DHS,), (), "filtered_pra"),
+        ("Rule", "Final rule.", "Automation of CBP Form I-418 for Vessels", (DHS, CBP), ((8, "251"), (19, "4")), "filtered_title_deny"),
+        ("Rule", "Final rule.", "Establishing the Gordie Howe International Bridge as a Port of Entry in Detroit, MI",
+         (DHS, CBP), ((8, "100"), (19, "101")), "filtered_title_deny"),
+        ("Rule", "Final rule.", "Regulatory Changes Required by the Energy Security and Lightering Independence Act of 2022",
+         (DHS,), ((8, "258"),), "filtered_title_deny"),
+    ]
+    bad_keep = [t for ty, a, t, ag, c in kept if not fr.classify(doc("k", ty, t, a, ag, c), CFG)[0]]
+    check("J1 golden set: every real immigration doc is KEPT", not bad_keep, str(bad_keep))
+    bad_drop = [(t, fr.classify(doc("d", ty, t, a, ag, c), CFG)[1]) for ty, a, t, ag, c, want in dropped
+                if fr.classify(doc("d", ty, t, a, ag, c), CFG)[1] != want]
+    check("J2 golden set: every real noise doc DROPPED for the expected reason", not bad_drop, str(bad_drop))
+    check("J3 L2 never drops a RULE whose title says 'Meeting'",
+          fr.classify(doc("r", "Rule", "Meeting the Requirements for H-1B Specialty Occupations", "Final rule."), CFG)[0])
+    check("J4 L2 never drops a PROPOSED RULE titled 'Collection of Information' (e.g. biometrics)",
+          fr.classify(doc("p", "Proposed Rule", "Collection of Information and Biometrics From Aliens",
+                          "Proposed rule."), CFG)[0])
+    check("J5 L2 still drops a PRA *notice* with the same words",
+          fr.classify(doc("n", "Notice", "Collection of Information: Form I-765", "60-Day notice.", (USCIS,), ()), CFG)[1]
+          == "filtered_pra")
+    check("J6 doc with no agencies / no title / no abstract doesn't crash",
+          fr.classify({"document_number": "z", "type": "Rule"}, CFG) == (False, "filtered_no_signal"))
+
+
+def group_digest_edges():
+    print("\nK — digest / label edges")
+    d = doc("2026-5", "Notice", "TPS", "Notice.", (USCIS,), (), docket_ids=[], pdf_url=None, dates=None)
+    body, tag = fr.build_digest(d, "", CFG)
+    check("K1 no RIN/docket => no 'RIN / Docket' line", "RIN / Docket" not in body)
+    check("K2 no PDF => official link without PDF suffix", "(PDF:" not in body and "Official text: https://" in body)
+    check("K3 no dates => no DATES section", "DATES:" not in body)
+    check("K4 empty raw text => no KEY EXCERPT, footer still present", "KEY EXCERPT" not in body and "Not legal advice" in body)
+    big = doc("2026-6", abstract="word " * 3000)
+    bbody, _ = fr.build_digest(big, GPO_RULE, CFG)
+    check("K5 abstract alone exceeds budget => excerpt dropped, no crash", "KEY EXCERPT" not in bbody)
+    check("K6 headline falls back to document_number", fr.headline({"document_number": "2026-9", "type": "Notice"})
+          == "Notice: 2026-9")
+    check("K7 unknown type label passes through; empty type => 'Document'",
+          fr.status_label({"type": "Presidential Document", "document_number": "p"}) == "Presidential Document"
+          and fr.status_label({"document_number": "p"}) == "Document")
+    ex = fr.excerpt("<pre>SUPPLEMENTARY INFORMATION:\n\nI. Executive Summary\n\nII. Executive Summary\n\n"
+                    "Heading only\n\n" + PROSE + "</pre>", 30)
+    check("K8 Executive Summary heading(s) with prose only much later still yields prose",
+          ex.startswith("Executive Summary: The Secretary"), ex[:50])
+    only_toc = "<pre>SUPPLEMENTARY INFORMATION:\n\nII. Executive Summary\n    A. Purpose\n</pre>"
+    check("K9 heading with NO prose after it anywhere => empty (no ToC dumped)", fr.excerpt(only_toc, 30) == "")
+    check("K10 HTML entities decoded", "&amp;" not in fr.excerpt(
+        "<pre>SUPPLEMENTARY INFORMATION:\n\n    DHS &amp; DOL jointly issue this rule to update the H-2B cap for the "
+        "second half of the fiscal year today.\n</pre>", 30))
+
+
+def group_poll_edges():
+    print("\nL — poll edges: defaults, cache, supersede failure, ordering, idempotent ids")
+    import gov_news_poll
+    import posting
+    base = [doc("2026-100", "Notice", "TPS for X", "Notice.", (USCIS,), (), pub="2026-09-10")]
+
+    bq_calls = []
+    orig_eh = gov_news_poll._existing_hashes
+    gov_news_poll._existing_hashes = lambda slug: (bq_calls.append(slug) or {"2026-100": "h"})
+    try:
+        with Stub(base):
+            r = fr.poll_source("federal-register", SRC, dry_run=True, today=date(2026, 9, 27))
+        check("L1 default known-set = BigQuery lookup keyed by source slug",
+              bq_calls == ["federal-register"] and r["unchanged"] == 1)
+        bq_calls.clear()
+        with Stub(base):
+            r = fr.poll_source("federal-register", SRC, dry_run=True, force=True, today=date(2026, 9, 27))
+        check("L2 force => BigQuery NOT consulted, doc reprocessed", bq_calls == [] and r["new"] == 1)
+    finally:
+        gov_news_poll._existing_hashes = orig_eh
+
+    rec = Recorder()
+    orig_pub = posting.publish_gov_news_item
+    posting.publish_gov_news_item = rec
+    try:
+        with Stub(base):
+            fr.poll_source("federal-register", SRC, known={}, today=date(2026, 9, 27))
+        check("L3 default publisher = posting.publish_gov_news_item", len(rec.calls) == 1)
+    finally:
+        posting.publish_gov_news_item = orig_pub
+
+    prop_a = doc("2025-1", "Proposed Rule", "A", "Proposed rule.", pub="2025-01-01", rins=("R1",))
+    prop_b = doc("2025-2", "Proposed Rule", "B", "Proposed rule.", pub="2025-02-01", rins=("R1",))
+    stub = Stub([prop_a, prop_b], rin_docs={"R1": [prop_a, prop_b]})
+    run(stub)
+    rin_calls = [c for c in stub.json_calls if "conditions[regulation_id_number]" in c]
+    check("L4 RIN family fetched once per run (cache), not once per doc", len(rin_calls) == 1, str(len(rin_calls)))
+
+    early_final = doc("2024-9", "Rule", "A", "Final rule.", pub="2024-06-01", rins=("R2",))
+    late1 = doc("2026-8", "Rule", "A", "Final rule.", pub="2026-08-01", rins=("R2",))
+    late0 = doc("2026-3", "Rule", "A", "Final rule.", pub="2026-03-01", rins=("R2",))
+    p = doc("2025-5", "Proposed Rule", "A", "Proposed rule.", pub="2025-05-01", rins=("R2",))
+    fam = {"R2": [early_final, late1, late0, p]}
+    with Stub([], rin_docs=fam):
+        s = fr.find_superseding_final(p, CFG, {})
+    check("L5 earliest LATER final rule chosen; earlier final ignored", s and s["document_number"] == "2026-3")
+    with Stub([], rin_docs=fam):
+        check("L6 proposal without RIN => never superseded",
+              fr.find_superseding_final(doc("x", "Proposed Rule", rins=()), CFG, {}) is None)
+        check("L7 a correction to a proposal is not itself superseded",
+              fr.find_superseding_final(doc("C1-2025-5", "Proposed Rule", rins=("R2",)), CFG, {}) is None)
+        check("L8 non-final Rule triggers no supersession sweep",
+              fr.proposals_superseded_by(doc("y", "Rule", action="Final rule; delay of effective date.", rins=("R2",)),
+                                         CFG, {}) == [])
+
+    prop = doc("2025-500", "Proposed Rule", "PC", "Proposed rule.", pub="2025-11-19", rins=("R3",))
+    final = doc("2026-600", "Rule", "PC", "Final rule.", pub="2026-07-20", rins=("R3",))
+    r, rec = run(Stub([final], rin_docs={"R3": [prop, final]}, fail_text={"2025-500"}), known={"2025-500": "h"})
+    check("L9 supersede failure is isolated: final still published, failure recorded",
+          [c["source_item_id"] for c in rec.calls] == ["2026-600"] and r["failed"] == 1
+          and r["failures"][0]["error"].startswith("supersede:"))
+
+    r, rec = run(Stub([final, prop], rin_docs={"R3": [prop, final]}), known={})
+    ids = [c["source_item_id"] for c in rec.calls]
+    check("L10 same-run proposal + final: proposal built once (labelled at build time), no extra edit",
+          ids == ["2025-500", "2026-600"] and all(not c["is_edit"] for c in rec.calls)
+          and "SUPERSEDED" in rec.calls[0]["description"])
+
+    same_day = [doc("2026-20", "Notice", "TPS B", "Notice.", (USCIS,), (), pub="2026-09-10"),
+                doc("2026-10", "Notice", "TPS A", "Notice.", (USCIS,), (), pub="2026-09-10")]
+    r, rec = run(Stub(same_day))
+    check("L11 deterministic order: date, then document_number",
+          [c["source_item_id"] for c in rec.calls] == ["2026-10", "2026-20"])
+
+    r, rec = run(Stub([final, doc("2026-700", "Notice", "TPS", "Notice.", (USCIS,), (), pub="2026-09-01")],
+                      rin_docs={"R3": [prop, final]}), known={"2025-500": "h"}, max_publish=1)
+    check("L12 supersede edits count toward the cap (next doc deferred)",
+          r["new"] == 1 and r["edited"] == 1 and r["deferred"] == 1)
+
+    captured = []
+    saved = {n: getattr(posting, n) for n in ("_extract", "validate", "_write_gcs", "_import_to_datastore", "_write_bigquery")}
+    posting._extract = lambda title, text: {}
+    posting.validate = lambda c: []
+    posting._write_gcs = lambda c, md: ("gs://b/x.md", "gs://b/x.json")
+    posting._import_to_datastore = lambda c, uri: None
+    posting._write_bigquery = lambda c, **kw: captured.append((c["case_id"], kw.get("delete_existing")))
+    try:
+        r, _ = run(Stub([final], rin_docs={"R3": [prop, final]}), known={}, publish=posting.publish_gov_news_item)
+        r, _ = run(Stub([final], rin_docs={"R3": [prop, final]}), known={}, publish=posting.publish_gov_news_item)
+        check("L13 same document => same case_id on retry (idempotent, no duplicate doc)",
+              captured[0][0] == captured[1][0] and captured[0][0].startswith("gov_news-federal-register-2026-07-20-"))
+        captured.clear()
+        run(Stub([prop], rin_docs={"R3": [prop]}), known={}, publish=posting.publish_gov_news_item)
+        run(Stub([final], rin_docs={"R3": [prop, final]}), known={"2025-500": "h"}, publish=posting.publish_gov_news_item)
+        prop_ids = [cid for cid, _ in captured if "2025-11-19" in cid]
+        check("L14 superseded re-publish reuses the proposal's case_id and deletes-before-insert in BigQuery",
+              len(prop_ids) == 2 and prop_ids[0] == prop_ids[1]
+              and [de for cid, de in captured if "2025-11-19" in cid] == [False, True])
+    finally:
+        for n, f in saved.items():
+            setattr(posting, n, f)
+
+
+def group_cli():
+    print("\nM — CLIs: adapter dry-run entry point + poll_gov_news summary/args + poll_all pass-through")
+    import contextlib
+    import io
+    import types
+    import gov_news_poll
+
+    base = [doc("2026-100", "Notice", "TPS for X", "Notice.", (USCIS,), (), pub="2026-09-10"),
+            doc("2026-102", "Notice", "Biographic Information", "60-Day notice.", (USCIS,), (), pub="2026-09-13")]
+    old_argv = sys.argv
+    try:
+        sys.argv = ["federal_register_poll.py", "--since", "2026-09-01", "--no-bq", "--show", "1"]
+        out = io.StringIO()
+        noabs = doc("2026-104", "Notice", "TPS for Y", "Notice.", (USCIS,), (), abstract="", pub="2026-09-11")
+        with Stub(base + [noabs], fail_text={"2026-104"}), contextlib.redirect_stdout(out):
+            rc = fr._main()
+        txt = out.getvalue()
+        check("M1 dry-run CLI: rc 0, counts, kept/filtered lists, sample digest",
+              rc == 0 and "new=1" in txt and "filtered_pra=1" in txt and "2026-102" in txt
+              and "SAMPLE DIGEST 2026-100" in txt and "STATUS: NOTICE" in txt)
+        check("M1b dry-run CLI lists per-doc failures", "FAILED 2026-104" in txt)
+        sys.argv = ["federal_register_poll.py", "--no-bq"]
+        with Stub(base, fail_json=True), contextlib.redirect_stdout(io.StringIO()) as o2:
+            rc = fr._main()
+        check("M2 dry-run CLI: API down => rc 1 with reason", rc == 1 and "skipped:" in o2.getvalue())
+        check("M3 dry-run CLI never publishes (no publisher resolved in dry-run)",
+              "case_id" not in txt)
+    finally:
+        sys.argv = old_argv
+
+    seen = {}
+    orig_ges, orig_ps = gov_news_poll.get_enabled_sources, gov_news_poll.poll_source
+    gov_news_poll.get_enabled_sources = lambda: {"uscis": {"fetch_method": "rss"}, "federal-register": SRC}
+    gov_news_poll.poll_source = lambda slug, cfg, **kw: (seen.setdefault(slug, kw) and None) or {"source": slug, **kw}
+    try:
+        res = gov_news_poll.poll_all(since="2024-09-27", max_publish=200)
+        check("M4 poll_all forwards since/max_publish to every source",
+              seen["federal-register"] == {"dry_run": False, "force": False, "since": "2024-09-27", "max_publish": 200}
+              and len(res) == 2)
+        res = gov_news_poll.poll_all(source_slug="nope")
+        check("M5 poll_all: unknown/disabled slug reported, not crashed", res[0].get("skipped") is True)
+        seen.clear()
+        gov_news_poll.poll_all(source_slug="federal-register")
+        check("M6 poll_all: --source limits the run to one slug; defaults unchanged for the scheduler",
+              list(seen) == ["federal-register"] and seen["federal-register"]["since"] == ""
+              and seen["federal-register"]["max_publish"] is None)
+    finally:
+        gov_news_poll.get_enabled_sources, gov_news_poll.poll_source = orig_ges, orig_ps
+
+    # scripts/curation/poll_gov_news.py — import with a no-op dotenv so CI never reads a .env
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "poll_gov_news_cli", _BACKEND.parent / "scripts" / "curation" / "poll_gov_news.py")
+    cli = importlib.util.module_from_spec(spec)
+    real_dotenv = sys.modules.get("dotenv")
+    sys.modules["dotenv"] = types.SimpleNamespace(load_dotenv=lambda *a, **k: None)
+    try:
+        spec.loader.exec_module(cli)
+    finally:
+        if real_dotenv is not None:
+            sys.modules["dotenv"] = real_dotenv
+        else:
+            sys.modules.pop("dotenv", None)
+    got = {}
+    cli.poll_all = lambda **kw: (got.update(kw) or [
+        {"source": "federal-register", "display_name": "Federal Register", "items_in_feed": 3, "already_known": 1,
+         "new": 1, "edited": 0, "unchanged": 1, "failed": 0, "deferred": 2, "filtered_pra": 1,
+         "filtered_title_deny": 0, "published": [{"title": "Notice: TPS", "action": "new", "case_id": "c1"}],
+         "failures": []},
+        {"source": "uscis", "display_name": "USCIS", "items_in_feed": 5, "already_known": 5, "new": 0, "edited": 0,
+         "unchanged": 5, "failed": 0, "published": [], "failures": []}])
+    old_argv = sys.argv
+    try:
+        sys.argv = ["poll_gov_news.py", "--source", "federal-register", "--since", "2024-09-27",
+                    "--max-publish", "200", "--dry-run"]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = cli.main()
+        txt = out.getvalue()
+        check("M7 CLI passes --source/--since/--max-publish/--dry-run through to poll_all",
+              rc == 0 and got == {"source_slug": "federal-register", "dry_run": True, "force": False,
+                                  "since": "2024-09-27", "max_publish": 200}, str(got))
+        check("M8 CLI prints FR filter + deferred counters", "filtered_pra=1" in txt and "deferred=2" in txt)
+        uscis_block = txt.split("=== uscis")[1]
+        check("M9 CLI output for RSS sources unchanged (no extra counters line)",
+              "filtered_" not in uscis_block and "deferred" not in uscis_block)
+        sys.argv = ["poll_gov_news.py"]
+        got.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.main()
+        check("M10 CLI defaults: all sources, no since/cap override", got == {"source_slug": "", "dry_run": False,
+              "force": False, "since": "", "max_publish": None})
+    finally:
+        sys.argv = old_argv
+
+
+def group_config_edges():
+    print("\nN — config edges")
+    import re as _re
+    good = json.load(open(fr._CONFIG_PATH))
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump({**good, "exclude_pattern": "(unclosed"}, f)
+    try:
+        fr.load_config(f.name)
+        check("N1 invalid regex in config raises", False)
+    except _re.error:
+        check("N1 invalid regex in config raises", True)
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        f.write("{not json")
+    try:
+        fr.load_config(f.name)
+        check("N2 malformed JSON raises", False)
+    except ValueError:
+        check("N2 malformed JSON raises", True)
+    lean = {k: v for k, v in good.items() if k not in ("lookback_days", "max_publish_per_run",
+                                                        "digest_max_words", "excerpt_max_words", "cfr_deny")}
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(lean, f)
+    c = fr.load_config(f.name)
+    check("N3 optional knobs default safely",
+          (c["lookback_days"], c["max_publish_per_run"], c["digest_max_words"], c["excerpt_max_words"], c["_cfr_deny"])
+          == (21, 25, 2500, 1800, set()))
+    check("N4 shipped per-run cap leaves headroom in the shared 300s request", CFG["max_publish_per_run"] <= 10)
+    check("N5 lookback window covers >=2 missed weekly runs", CFG["lookback_days"] >= 14)
+    check("N6 DEFAULT_SOURCE passes the registry's automation gates",
+          fr.DEFAULT_SOURCE["content_license"] == "public_domain" and fr.DEFAULT_SOURCE["content_type"] == "news"
+          and fr.DEFAULT_SOURCE["fetch_method"] == "federalregister_api")
+    import news_sources
+    check("N7 DEFAULT_SOURCE has every registry REQUIRED_FIELD", news_sources.REQUIRED_FIELDS <= set(fr.DEFAULT_SOURCE),
+          str(news_sources.REQUIRED_FIELDS - set(fr.DEFAULT_SOURCE)))
+
+
 def main() -> None:
     print("== test_federal_register ==")
     group_config()
@@ -449,6 +846,12 @@ def main() -> None:
     group_poll()
     group_wiring()
     group_e2e()
+    group_http()
+    group_filter_regressions()
+    group_digest_edges()
+    group_poll_edges()
+    group_cli()
+    group_config_edges()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")
     sys.exit(1 if _failed else 0)
 

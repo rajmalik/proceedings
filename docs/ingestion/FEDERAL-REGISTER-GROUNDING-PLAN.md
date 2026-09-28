@@ -3,8 +3,9 @@
 **Branch:** `feature/grounding-federalregister` (off `feature/gov-grounding-expansion`).
 **Status:** BUILT + TESTED on this branch — **not deployed, not registered in Firestore** (ships with the
 umbrella release; go-live runbook in §11). Code: `backend/federal_register_poll.py`,
-`backend/config/federal_register_selectors.json`, tests `backend/tests/test_federal_register.py` (77 checks,
-CI gate). 24-month read-only dry run: `FEDERAL-REGISTER-DRYRUN-2026-09-27.md` (257 candidates → 123 kept,
+`backend/config/federal_register_selectors.json`, tests `backend/tests/test_federal_register.py` (138 checks) + `backend/tests/test_gov_news_poll.py`
+(25 checks, the RSS path this work touched), both in the CI gate — 99% line+branch coverage of
+`federal_register_poll.py` + `gov_news_poll.py`; 8/8 targeted mutants caught. 24-month read-only dry run: `FEDERAL-REGISTER-DRYRUN-2026-09-27.md` (257 candidates → 123 kept,
 134 filtered, 0 failed).
 **Goal:** ground the assistant on the **latest official US-immigration rules and notices** (final rules,
 proposed rules, TPS designations and terminations, fee notices) from the Federal Register, and only those.
@@ -81,7 +82,7 @@ Two facts drive the design:
   u-s-immigration-and-customs-enforcement, executive-office-for-immigration-review}`.
   **CBP is excluded** (it is almost entirely customs and trade).
 
-**L2 — PRA/administrative exclusion** (applied to `action + " " + title`):
+**L2 — PRA/administrative exclusion** (applied to `action + " " + title`, **notices only**: every one of the 130 PRA/admin items in the 24-month dry run was a Notice, and a real *rule* titled "…Meeting…" or "…Collection of Information…" must never be silently dropped):
 `\b\d+-day notice\b | information collection | collection of information | currently approved collection
 | paperwork reduction | privacy act | system of records | \bmeeting\b | sunshine act`
 

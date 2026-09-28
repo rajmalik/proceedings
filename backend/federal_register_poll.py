@@ -171,7 +171,11 @@ def _cfr_refs(doc: dict) -> list[tuple[int, str]]:
 def classify(doc: dict, cfg: dict) -> tuple[bool, str]:
     """(keep, reason). reason is "kept" or one of _FILTER_REASONS."""
     title = doc.get("title") or ""
-    if cfg["_exclude_re"].search(f"{doc.get('action') or ''} {title}"):
+    # L2 applies to NOTICES only: PRA/Privacy-Act/meeting items are always
+    # notices (all 130 dropped in the 24-month dry run were), while a real rule
+    # can legitimately say "Meeting ..." or "Collection of Information ..." in
+    # its title — never silently drop a rule on those words.
+    if doc.get("type") == "Notice" and cfg["_exclude_re"].search(f"{doc.get('action') or ''} {title}"):
         return False, "filtered_pra"
     if cfg["_title_deny_re"].search(title):
         return False, "filtered_title_deny"
