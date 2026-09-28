@@ -1,7 +1,11 @@
 # Federal Register grounding — plan
 
 **Branch:** `feature/grounding-federalregister` (off `feature/gov-grounding-expansion`).
-**Status:** PLAN — no code, no Firestore write, no deploy yet.
+**Status:** BUILT + TESTED on this branch — **not deployed, not registered in Firestore** (ships with the
+umbrella release; go-live runbook in §11). Code: `backend/federal_register_poll.py`,
+`backend/config/federal_register_selectors.json`, tests `backend/tests/test_federal_register.py` (77 checks,
+CI gate). 24-month read-only dry run: `FEDERAL-REGISTER-DRYRUN-2026-09-27.md` (257 candidates → 123 kept,
+134 filtered, 0 failed).
 **Goal:** ground the assistant on the **latest official US-immigration rules and notices** (final rules,
 proposed rules, TPS designations and terminations, fee notices) from the Federal Register, and only those.
 Ingest each document **once**. Never re-process unchanged content.
@@ -111,7 +115,7 @@ hashing of the source**; a new-ID check is enough.
 | **Why a window, not a stored watermark** | No new state or resource. It is idempotent, and it self-heals after up to about 3 weeks of missed or failed runs. It also catches late API indexing. The 21-day overlap costs about 2 tiny API calls. |
 | **Unchanged docs** | Skipped **before** any `raw_text` fetch, Gemini tag call, or GCS/Discovery Engine/BigQuery write, so an unchanged run is zero-cost except for about 5 metadata calls and 1 BQ query. |
 | **Our own derived changes** (e.g. we change the digest format, or mark a proposed rule superseded) | Edits happen only through **explicit triggers**: a supersession event (§6.3) or a manual `--force-reformat` CLI flag. Both use the existing `is_edit=True` delete-before-insert path. No blind re-hashing. |
-| **Per-run cap** | At most **25 publishes per scheduled run**. The gov-news HTTP route runs under Cloud Run's 300 s timeout (see the 2026-07-27 hang notes in `gov_news_poll.py`). Anything over the cap simply stays "new" and publishes the next day. |
+| **Per-run cap** | At most **8 publishes per scheduled run** (`max_publish_per_run`). The daily job polls *every* source sequentially in **one** 300 s Cloud Run request, and the USCIS RSS poll alone has taken ~146 s (2026-07-27 notes in `gov_news_poll.py`); 8 × ~6–8 s keeps headroom. Steady state is 0–3/day. Anything over the cap stays "new" and publishes the next day (`deferred` counter). |
 | **Backfill** | One-time **CLI run**, not the HTTP route: `poll_gov_news.py --source federal-register --since 2024-09-27 --dry-run`, then a real run. It is chunked and resumable for free, because every published ID becomes "known". |
 | **Failure** | If one document fails, it is logged and skipped and retries on the next run (its ID is still unknown). If the API is down, the source is skipped for that run and other sources are unaffected. |
 
@@ -216,3 +220,37 @@ Source: Federal Register (National Archives). Public domain. Not legal advice. R
 
 **Deferred:** Public Inspection (T−1 day) pre-publication alerts (Option D) and the eCFR Title 8
 consolidated-text tier (Option E).
+
+## 11. Go-live runbook (at the umbrella release — NOT before)
+
+Prerequisites: this branch merged into `feature/gov-grounding-expansion` → `main` (after coordinating with
+the mobile developer), backend deployed and healthy. Until the Firestore entry exists, the deployed code is
+inert (no source uses `federalregister_api`). Before deploy, an accidentally-registered entry is also harmless:
+the currently-deployed `gov_news_poll` skips any non-RSS `fetch_method`.
+
+1. **Pre-flight dry run** (read-only, no Firestore/BigQuery writes; ~2 min):
+   ```bash
+   cd backend && ../.venv/bin/python federal_register_poll.py --since 2024-09-27 --show 2
+   ```
+   Expect roughly the dry-run report's numbers (plus any documents published since 2026-09-27); `failed=0`.
+2. **Register + enable (THE go-live switch — needs explicit go-ahead):**
+   ```bash
+   cd backend && ../.venv/bin/python ../scripts/curation/manage_news_sources.py add federal-register \
+     --display-name "Federal Register" --site-url https://www.federalregister.gov \
+     --feed-url https://www.federalregister.gov/api/v1/documents.json \
+     --content-license public_domain --content-type news --source-category government \
+     --fetch-method federalregister_api
+   ```
+3. **Backfill immediately, from the CLI** (not the 300 s HTTP route; roughly 10–15 min for ~125 docs; resumable,
+   because every published doc becomes "known"):
+   ```bash
+   cd backend && ../.venv/bin/python ../scripts/curation/poll_gov_news.py --source federal-register \
+     --since 2024-09-27 --max-publish 200 --dry-run   # confirm, then re-run without --dry-run
+   ```
+4. **Verify:**
+   - A rerun prints `new=0 unchanged≈123` (the incremental guarantee).
+   - The next 06:00 ET scheduled run logs `federal-register` with `new` between 0 and 3.
+   - Assist answers for a TPS question and an H-1B fee question cite `federalregister.gov`.
+5. **Registry:** move the `GROUNDING-SOURCES.md` row from section B to section A in the same change.
+6. **Rollback:** `manage_news_sources.py disable federal-register` stops ingestion with no deploy. Documents
+   already ingested stay (gov_news docs), and can be removed by `source_system="federal-register"` if needed.

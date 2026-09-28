@@ -136,7 +136,8 @@ def _existing_hashes(source_slug: str) -> dict[str, str]:
         return {}
 
 
-def poll_source(source_slug: str, source: dict, dry_run: bool = False, force: bool = False) -> dict:
+def poll_source(source_slug: str, source: dict, dry_run: bool = False, force: bool = False,
+                since: str = "", max_publish: int | None = None) -> dict:
     """Poll one already-resolved source config. Returns a JSON-serializable
     summary dict — used both for the CLI's printed output and the internal
     API route's response body.
@@ -154,6 +155,12 @@ def poll_source(source_slug: str, source: dict, dry_run: bool = False, force: bo
     couldn't run — the Discovery Engine/GCS side can still be corrected
     immediately since those aren't subject to the same restriction)."""
     t0 = time.monotonic()
+    if source["fetch_method"] == "federalregister_api":
+        # Structured-API adapter (FEDERAL-REGISTER-GROUNDING-PLAN.md). `since`/
+        # `max_publish` only apply here (backfill via the CLI); RSS ignores them.
+        from federal_register_poll import poll_source as poll_federal_register
+        return poll_federal_register(source_slug, source, dry_run=dry_run, force=force,
+                                     since=since, max_publish=max_publish)
     if source["fetch_method"] != "rss":
         return {"source": source_slug, "skipped": True,
                 "reason": f"fetch_method={source['fetch_method']!r} has no adapter yet"}
@@ -235,7 +242,8 @@ def poll_source(source_slug: str, source: dict, dry_run: bool = False, force: bo
     }
 
 
-def poll_all(source_slug: str = "", dry_run: bool = False, force: bool = False) -> list[dict]:
+def poll_all(source_slug: str = "", dry_run: bool = False, force: bool = False,
+             since: str = "", max_publish: int | None = None) -> list[dict]:
     """Poll one source (if source_slug given) or every enabled source.
     Resolves the registry from Firestore exactly once per call — a fresh
     read every run, so a source added/edited/disabled since the last run is
@@ -248,4 +256,5 @@ def poll_all(source_slug: str = "", dry_run: bool = False, force: bool = False) 
             return [{"source": source_slug, "skipped": True,
                      "reason": "not found, disabled, or not automatable (wrong content_license) — see news_sources.get_enabled_sources()"}]
         sources = {source_slug: sources[source_slug]}
-    return [poll_source(slug, cfg, dry_run=dry_run, force=force) for slug, cfg in sources.items()]
+    return [poll_source(slug, cfg, dry_run=dry_run, force=force, since=since, max_publish=max_publish)
+            for slug, cfg in sources.items()]
