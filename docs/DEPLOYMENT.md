@@ -19,6 +19,15 @@ How the Proceedings app ships. Two independent deploy targets today, plus mobile
 | **Mobile** | `mobile/` | Expo / EAS → App Store / Play | Not set up | Not deployed |
 
 > **Frontend host change:** the site was previously on **Vercel** (git-driven). We moved it to **Cloud Run** (`immiguide-web`) after losing admin access to the Vercel project — see §3. The old `proceedings.vercel.app` is orphaned.
+>
+> **Vercel decommissioned (in-repo):** the Vercel GitHub app was still connected and kept building Preview
+> deploys on every push and **Production from `main`** into the orphaned project(s) (`krish-maliks-projects/proceedings`,
+> `krishes/proceedings`). `vercel.json` (repo root + `website/`) now sets `git.deploymentEnabled: false`, which
+> stops Git-triggered Vercel builds for any commit that contains it. The backend's `*.vercel.app` CORS wildcard is
+> removed (§2.5). **Owner action still required:** uninstall the **Vercel** GitHub App from `rajmalik/proceedings`
+> (GitHub → Settings → Integrations → GitHub Apps → Vercel → Configure → remove the repo). Branches created before
+> this change still preview-deploy until that's done. Vercel checks on PRs are **not** a frontend signal; the
+> `website` job in GitHub Actions is.
 
 **Both deploys are now manual + git-independent** — each builds from your *local* working tree (`gcloud run deploy --source <dir>`), not from git. They're decoupled: the backend can lead the frontend (new endpoints are additive; nothing calls them until the site ships).
 
@@ -65,7 +74,7 @@ Secrets (e.g. a future Reddit OAuth secret) → **Secret Manager**, mounted as e
 The Cloud Run service runs as **`971592620882-compute@developer.gserviceaccount.com`** (default compute SA). It needs: Firestore (`datastore.user`), Discovery Engine (search/answer + `documents.import`), Vertex AI (Gemini), GCS (read/write the bucket), BigQuery (write `postings_metadata`). Grant additional roles to **this SA**, not key files. (For phase-N's full real-time path, add FCM-send when that lands.)
 
 ### 2.5 CORS
-`backend/api.py` allows `http://localhost:3000` and any `https://*.vercel.app` (regex). So Vercel preview **and** production origins work out of the box. A custom frontend domain must be **added to `allow_origins`** and redeployed.
+`backend/api.py` allows exactly `http://localhost:3000`, `https://meridianjourney.ai` and `https://www.meridianjourney.ai`. There is **no wildcard**. The old `https://*.vercel.app` regex admitted *any* site on vercel.app and was removed with the move to Cloud Run. The website calls the API **server-side** through its `/api/*` proxy routes, so browser CORS only matters for direct browser calls. Any new frontend origin must be **added to `allow_origins`** and redeployed. `backend/tests/test_cors.py` (CI gate) pins this list.
 
 ### 2.6 Verify (post-deploy smoke)
 ```bash

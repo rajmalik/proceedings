@@ -112,8 +112,10 @@ app.add_middleware(
         "https://meridianjourney.ai",
         "https://www.meridianjourney.ai",
     ],
-    # Vercel preview deploys (anchored so it can't match e.g. attacker.vercel.app.evil.com).
-    allow_origin_regex=r"https://[a-z0-9-]+\.vercel\.app$",
+    # No `*.vercel.app` wildcard: the frontend moved to Cloud Run (immiguide-web,
+    # docs/DEPLOYMENT.md) and the old Vercel project is orphaned. That regex
+    # admitted ANY site on vercel.app (anyone's), not just ours.
+    # tests/test_cors.py pins this allow-list.
     allow_methods=["*"],
     allow_headers=["*"],
 )
