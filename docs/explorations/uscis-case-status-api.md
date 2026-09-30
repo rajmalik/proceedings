@@ -3,7 +3,7 @@
 **Status:** DEFERRED. Evaluated 2026-09-29; no code written and no USCIS account created.
 **Registry:** `docs/ingestion/GROUNDING-SOURCES.md`. Section B lists "USCIS — Case Status API"; section C rules out
 the `my.uscis.gov` private API.
-**Decision needed to un-defer:** the two business questions in §5 (US incorporation, Section 508).
+**Decision needed to un-defer:** Section 508 readiness (§5). US incorporation is confirmed (2026-09-29).
 
 ---
 
@@ -72,8 +72,8 @@ Feature 4 depends on features 1 and 2, and on enough linked users.
 
 | Requirement | Status | Owner |
 |---|---|---|
-| **US-incorporated company/organization** behind meridianjourney.ai | ❓ **Business decision/confirmation** | Founder |
-| **Section 508** (accessibility) compliance of site and app | ❓ **Needs an audit** (WCAG 2.x AA is the practical bar) | Eng + design |
+| **US-incorporated company/organization** behind meridianjourney.ai | ✅ Confirmed by the founder (2026-09-29) | Founder |
+| **Section 508** (accessibility) compliance of site and app | ❓ **Needs an audit.** The 508 standard (2017 refresh) incorporates **WCAG 2.0 A+AA**; target **WCAG 2.1 AA**. Evidence: automated scan (axe/Lighthouse), manual keyboard + screen-reader testing (VoiceOver/TalkBack/NVDA), and an **Accessibility Conformance Report** on the VPAT 2.x "508" template. Covers both `website/` and `mobile/` | Eng + design |
 | Public **privacy policy** and **terms of service** | ✅ `website/src/app/privacy`, `website/src/app/terms` exist. ⚠️ Must be updated to cover receipt numbers, USCIS data, consent and retention | Founder/legal |
 | Real user authentication (receipt numbers tie to identity) | ✅ Firebase ID-token verification in `api.py`; `ALLOW_USER_IMPERSONATION` is off by default. Must stay off in prod | Eng |
 | Secret management for the Client Secret | ✅ Pattern exists (Secret Manager, no key files; `docs/DEPLOYMENT.md`) | Eng |
@@ -125,7 +125,7 @@ Assist "what's my status?" ──► tool call ──► latest stored status (+
 
 | Phase | Scope | Exit criterion |
 |---|---|---|
-| **0 — Business** | Confirm US incorporation; Section 508 audit; update privacy policy and ToS for case data | Answers to §5's open rows |
+| **0 — Business** | ~~Confirm US incorporation~~ ✅; Section 508 / WCAG 2.1 AA audit + fixes + ACR (VPAT); update privacy policy and ToS for case data | 508 evidence ready; policies updated |
 | **1 — Sandbox** | Portal sign-up, team and app; `uscis_case_status.py` against the sandbox; verify the §3 unknowns | Sandbox round-trip; schema documented |
 | **2 — Demo → production** | Affidavit; `demo_id` header; HTTPS success/error handling; USCIS demo | Production keys received |
 | **3 — Linking + verified timeline + alerts** | Link/unlink UI (web, then mobile); daily refresh; in-app notifications; "verified" badge | Real users' statuses sync; alerts fire on change |
