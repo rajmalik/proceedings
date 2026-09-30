@@ -294,6 +294,67 @@ def run_integration() -> None:
             print(f"  (cleanup) WARNING could not delete {case_id}: {e}")
 
 
+def run_unit_registry() -> None:
+    """Registry-contract tests for the shipped official_reference config — the
+    F-1 -> H-1B -> EB -> I-485 -> naturalization pathway + core topics, plus
+    invariants (gov-domain-only, no dupes, required fields, valid slugs)."""
+    print("\nUnit I — official_reference registry contract (uscis.gov grounding)")
+    import re as _re
+    from urllib.parse import urlparse
+    import official_reference_poll as orp
+
+    srcs = orp.load_sources()  # shipped default config
+    urls = [s["url"] for s in srcs]
+
+    # Invariants
+    check("I1 registry has the expected breadth (>=30 sources)", len(srcs) >= 30, str(len(srcs)))
+    check("I2 every entry has url+source_system+title+author",
+          all(s.get("url") and s.get("source_system") and s.get("title") and s.get("author") for s in srcs))
+    check("I3 no duplicate URLs", len(urls) == len(set(urls)),
+          f"{len(urls)-len(set(urls))} dup(s)")
+    bad_host = [u for u in urls if not urlparse(u).netloc.lower().endswith(".gov")]
+    check("I4 every source is a .gov (public-domain) host", not bad_host, str(bad_host[:3]))
+    bad_scheme = [u for u in urls if urlparse(u).scheme != "https"]
+    check("I5 every URL is https", not bad_scheme, str(bad_scheme[:3]))
+    slug_re = _re.compile(r"^[a-z0-9-]+$")
+    bad_slug = [s["source_system"] for s in srcs if not slug_re.match(s["source_system"])]
+    check("I6 source_system slugs are stable ([a-z0-9-])", not bad_slug, str(bad_slug[:3]))
+
+    # F-1 -> H-1B -> EB -> I-485 -> naturalization pathway coverage
+    pathway = {
+        "F-1 OPT": "https://www.uscis.gov/working-in-the-united-states/students-and-exchange-visitors/optional-practical-training-opt-for-f-1-students",
+        "F-1 STEM OPT": "https://www.uscis.gov/working-in-the-united-states/students-and-exchange-visitors/optional-practical-training-extension-for-stem-students-stem-opt",
+        "H-1B specialty": "https://www.uscis.gov/working-in-the-united-states/h-1b-specialty-occupations",
+        "H-1B cap-gap": "https://www.uscis.gov/working-in-the-united-states/temporary-workers/h-1b-specialty-occupations/extension-of-post-completion-optional-practical-training-opt-and-f-1-status-for-eligible-students",
+        "I-129": "https://www.uscis.gov/i-129",
+        "H-4 EAD": "https://www.uscis.gov/working-in-the-united-states/temporary-workers/h-1b-specialty-occupations/employment-authorization-for-certain-h-4-dependent-spouses",
+        "permanent-workers": "https://www.uscis.gov/working-in-the-united-states/permanent-workers",
+        "EB-1": "https://www.uscis.gov/working-in-the-united-states/permanent-workers/employment-based-immigration-first-preference-eb-1",
+        "EB-2": "https://www.uscis.gov/working-in-the-united-states/permanent-workers/employment-based-immigration-second-preference-eb-2",
+        "EB-3": "https://www.uscis.gov/working-in-the-united-states/permanent-workers/employment-based-immigration-third-preference-eb-3",
+        "I-140": "https://www.uscis.gov/i-140",
+        "I-485": "https://www.uscis.gov/i-485",
+        "I-765/EAD": "https://www.uscis.gov/i-765",
+        "I-131 advance parole": "https://www.uscis.gov/i-131",
+        "N-400 naturalization": "https://www.uscis.gov/n-400",
+    }
+    present = set(urls)
+    missing = [f"{k}" for k, u in pathway.items() if u not in present]
+    check("I7 full F-1->H-1B->EB->I-485->naturalization pathway grounded", not missing,
+          f"missing: {missing}")
+
+    # Core topics beyond the path
+    core = [
+        "https://www.uscis.gov/green-card/green-card-eligibility-categories",
+        "https://www.uscis.gov/green-card/green-card-eligibility/green-card-for-employment-based-immigrants",
+        "https://www.uscis.gov/humanitarian/refugees-and-asylum/asylum",
+        "https://www.uscis.gov/humanitarian/temporary-protected-status",
+    ]
+    check("I8 core topics grounded (GC eligibility, asylum, TPS)",
+          all(u in present for u in core),
+          str([u for u in core if u not in present]))
+
+
 def main() -> None:
     scope = sys.argv[1] if len(sys.argv) > 1 else "unit"
     print("== test_official_reference ==")
@@ -303,6 +364,7 @@ def main() -> None:
         run_unit_dedup()
         run_unit_poll()
         run_unit_config()
+        run_unit_registry()
     if scope in ("integration", "all"):
         run_integration()
     print(f"\nSUMMARY: {_passed}/{_passed + _failed} checks passed")

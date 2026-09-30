@@ -69,7 +69,10 @@ import news_sources as ns  # noqa: E402
 _CONTENT_LICENSES = {"public_domain", "copyrighted"}
 _CONTENT_TYPES = {"news", "forum_posting"}
 _SOURCE_CATEGORIES = {"government", "law_firm", "forum"}
-_FETCH_METHODS = {"rss"}  # the honest limit — only RSS has an automated adapter today
+# The honest limit — only these have an automated adapter in gov_news_poll.py.
+# federalregister_api: backend/federal_register_poll.py (FEDERAL-REGISTER-GROUNDING-PLAN.md);
+# its --feed-url is the API base, selectors live in backend/config/federal_register_selectors.json.
+_FETCH_METHODS = {"rss", "federalregister_api"}
 # "manual" isn't polled at all — for forum_posting sources registered here purely
 # for a single source of truth, whose actual publishing stays a human-curated
 # script (scripts/curation/publish_reddit.py), never gov_news_poll.py.

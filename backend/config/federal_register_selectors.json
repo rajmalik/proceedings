@@ -1,0 +1,29 @@
+{
+  "_comment": "Federal Register immigration selectors for federal_register_poll.py — see docs/ingestion/FEDERAL-REGISTER-GROUNDING-PLAN.md §4. Trust-sensitive: version-controlled (ships in the image), NOT in Firestore. The Firestore news_sources entry `federal-register` (fetch_method=federalregister_api) is only the on/off switch. Tune exclusions from the dry-run's per-reason counters, never by loosening L1.",
+  "version": 1,
+  "api_base": "https://www.federalregister.gov/api/v1",
+  "lookback_days": 21,
+  "max_publish_per_run": 8,
+  "_max_publish_why": "shares ONE 300s Cloud Run request with the USCIS RSS poll (~146s observed) — 8 x ~6-8s keeps headroom; steady state is 0-3/day; backfill uses the CLI --max-publish override",
+  "digest_max_words": 2500,
+  "excerpt_max_words": 1800,
+  "rule_selectors": [
+    {"cfr_title": 8, "_why": "Aliens and Nationality (DHS/USCIS/ICE/CBP-immigration, DOJ/EOIR)"},
+    {"cfr_title": 20, "cfr_part": "655", "_why": "DOL: LCA (H-1B/H-1B1/E-3), H-2A, H-2B"},
+    {"cfr_title": 20, "cfr_part": "656", "_why": "DOL: PERM labor certification"},
+    {"cfr_title": 22, "cfr_part": "40", "_why": "State: visa ineligibilities"},
+    {"cfr_title": 22, "cfr_part": "41", "_why": "State: nonimmigrant visas"},
+    {"cfr_title": 22, "cfr_part": "42", "_why": "State: immigrant visas"}
+  ],
+  "notice_agencies": [
+    "u-s-citizenship-and-immigration-services",
+    "u-s-immigration-and-customs-enforcement",
+    "executive-office-for-immigration-review"
+  ],
+  "exclude_pattern": "\\b\\d+-day notice\\b|information collection|collection of information|currently approved collection|paperwork reduction|privacy act|system of records|\\bmeeting\\b|sunshine act",
+  "title_deny_pattern": "port of entry|seaplane base|user fee airport|lightering|\\bvessels?\\b",
+  "cfr_deny": [
+    {"title": 8, "part": "100", "_why": "port-of-entry designations (only denied when it is the ONLY part touched)"}
+  ],
+  "immigration_keyword_pattern": "immigra|\\baliens?\\b|\\bvisas?\\b|nonimmigrant|naturaliz|citizenship|asylum|refugee|\\bparole\\b|temporary protected status|\\bTPS\\b|H-1B|H-2A|H-2B|\\bL-1\\b|EB-5|green card|permanent resid|employment authorization|labor certification|deferred enforced departure|\\bremoval\\b|deport"
+}

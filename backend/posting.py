@@ -1870,7 +1870,9 @@ def publish_gov_news_item(title: str, description: str, source_system: str,
                           author_handle: str, source_item_id: str, full_url: str,
                           posting_date: str, channel: str = "gov_news",
                           content_type: str = "news",
-                          is_edit: bool = False) -> dict:
+                          is_edit: bool = False,
+                          tag_text: str = "",
+                          ingestion_method: str = "rss_feed") -> dict:
     """Publish path for automated government-agency news ingestion — see
     docs/ingestion/GOV-NEWS-INGESTION-PLAN.md. Deliberately NOT wired to any
     FastAPI route, same reasoning as publish_reddit_posting(): only ever
@@ -1901,9 +1903,15 @@ def publish_gov_news_item(title: str, description: str, source_system: str,
     already-known source_item_id) triggers a delete-before-insert in
     BigQuery so the edit updates in place instead of duplicating — see
     _write_bigquery()'s `delete_existing` param and GOV-NEWS-INGESTION-PLAN.md
-    §5.3. Returns the same shape as publish_posting()."""
+    §5.3. Returns the same shape as publish_posting().
+
+    `tag_text` (optional) — tag from this shorter text instead of the full
+    `description` (which is still what gets stored/indexed). Used by the
+    Federal Register adapter so Gemini tags a rule from its header + SUMMARY,
+    not a multi-thousand-word excerpt. `ingestion_method` defaults to the
+    RSS value; the FR adapter passes "api". Both defaults = prior behavior."""
     try:
-        extracted = _extract(title, description)
+        extracted = _extract(title, tag_text or description)
     except Exception as e:  # noqa: BLE001 - publish with minimal tags rather than fail the whole poll run
         print(f"posting: extraction for gov-news item failed ({e}); publishing with minimal tags")
         extracted = {}
@@ -1914,7 +1922,7 @@ def publish_gov_news_item(title: str, description: str, source_system: str,
     canonical = build_canonical(
         title, description, tags,
         extracted.get("key_stages_or_info"), extracted.get("key_dates"), extracted,
-        channel=channel, ingestion_method="rss_feed", source_system=source_system,
+        channel=channel, ingestion_method=ingestion_method, source_system=source_system,
         full_url=full_url, posting_date=posting_date,
         author_handle=author_handle, source_item_id=source_item_id,
     )
