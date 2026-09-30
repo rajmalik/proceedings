@@ -1,0 +1,129 @@
+name: Mobile — EAS Build & Submit (manual approval)
+
+# iOS + Android build/submit pipeline for mobile/. Mirrors deploy.yml's two
+# layers of human control:
+#   1. workflow_dispatch — the run only ever STARTS when someone clicks
+#      "Run workflow" in the Actions tab (and picks a platform/profile).
+#   2. environment: production — before the job runs, GitHub PAUSES and
+#      waits for a designated reviewer to APPROVE it. Reuses the same gate
+#      already configured for deploy.yml (Settings ▸ Environments ▸
+#      "production" ▸ Required reviewers) — no extra GitHub setup needed if
+#      that's already in place for backend/website deploys.
+#
+# `submit: false` (default) — kicks off an EAS Build and returns immediately
+#   (--no-wait), so this job doesn't burn CI minutes waiting on the remote
+#   build queue (~15-25 min). Check the build URL EAS prints, or
+#   `npx eas-cli build:list`.
+# `submit: true` — waits for the build to finish, then auto-submits it
+#   (eas build --auto-submit). For iOS this delivers to TestFlight
+#   processing only — a human must separately attach the build to an App
+#   Store version and click "Submit for Review" (see
+#   docs/MOBILE-APP-STORE-DEPLOYMENT.md §4 step 7). For Android this
+#   uploads to whatever `track` is configured in eas.json's
+#   submit.production.android (default recommendation: start at `internal`
+#   — see docs/MOBILE-PLAY-STORE-DEPLOYMENT.md §2.4/§4).
+#
+# Not sure you have access to the Apple/Google/Expo accounts this needs?
+# See docs/MOBILE-APP-STORE-DEPLOYMENT.md §1 (iOS/Apple — has a real,
+# documented single-point-of-failure risk) and
+# docs/MOBILE-PLAY-STORE-DEPLOYMENT.md §1 (Android/Google — avoidable by
+# construction if set up right, see that section).
+#
+# One-time prerequisites:
+#   - iOS: signing credentials + (for submit=true) an App Store Connect API
+#     Key provisioned via `eas credentials` from a developer machine
+#     (interactive, Apple 2FA — cannot run in CI). See
+#     docs/MOBILE-APP-STORE-DEPLOYMENT.md §2-§3.
+#   - Android: EAS auto-generates the signing keystore on first build (no
+#     interactive Google login needed for that part); submit needs a
+#     Google Service Account key — see docs/MOBILE-PLAY-STORE-DEPLOYMENT.md
+#     §2.4.
+#   - repo secret EXPO_TOKEN (Expo access token, shared by both platforms —
+#     see docs/MOBILE-APP-STORE-DEPLOYMENT.md §3.1).
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform(s) to build/submit
+        type: choice
+        options: [ios, android, all]
+        default: ios
+      profile:
+        description: EAS build profile
+        type: choice
+        options: [preview, production]
+        default: production
+      submit:
+        description: Also submit the finished build(s) (App Store Connect / Play Console, per platform)
+        type: boolean
+        default: false
+      ref:
+        description: Git ref to build (branch, tag, or SHA)
+        type: string
+        default: main
+
+concurrency:
+  group: mobile-deploy
+  cancel-in-progress: false   # never interrupt an in-flight EAS build/submit
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # 🔒 The manual approval gate. The job blocks here until a required
+    #    reviewer approves the run in the GitHub UI.
+    environment:
+      name: production
+      url: https://expo.dev/accounts/krishmalik/projects/meridian/builds
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Optional: write an App Store Connect API key from a repo secret ──
+      # Only needed if you configured eas.json's submit.production.ios with
+      # an explicit `ascApiKeyPath` (docs/MOBILE-APP-STORE-DEPLOYMENT.md
+      # §2.3, "explicit in eas.json" option) instead of the
+      # EAS-remote-storage option. If you used the remote-storage option
+      # (the simpler default), skip this — leave it commented; it no-ops
+      # when the secret isn't set.
+      # - name: Write App Store Connect API key
+      #   if: ${{ inputs.submit == 'true' && (inputs.platform == 'ios' || inputs.platform == 'all') && secrets.ASC_API_KEY_P8_BASE64 != '' }}
+      #   run: |
+      #     mkdir -p secrets
+      #     echo "${{ secrets.ASC_API_KEY_P8_BASE64 }}" | base64 -d > secrets/AuthKey.p8
+
+      # ── Optional: write a Google Service Account key from a repo secret ──
+      # Only needed if you configured eas.json's submit.production.android
+      # with an explicit `serviceAccountKeyPath` (see
+      # docs/MOBILE-PLAY-STORE-DEPLOYMENT.md §2.4). Skip if not using
+      # Android submit yet.
+      # - name: Write Google Service Account key
+      #   if: ${{ inputs.submit == 'true' && (inputs.platform == 'android' || inputs.platform == 'all') && secrets.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 != '' }}
+      #   run: |
+      #     mkdir -p secrets
+      #     echo "${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 }}" | base64 -d > secrets/google-service-account.json
+
+      - name: EAS build (fire-and-forget)
+        if: ${{ inputs.submit == 'false' }}
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: npx eas-cli build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive --no-wait
+
+      - name: EAS build + auto-submit (waits for the build to finish)
+        if: ${{ inputs.submit == 'true' }}
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: npx eas-cli build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive --auto-submit

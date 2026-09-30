@@ -1,0 +1,28 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "copyright": "TODO_FILL_IN: e.g. \"2026 <legal entity name>\"",
+    "categories": ["TODO_FILL_IN_APPLE_CATEGORY_ENUM"],
+    "info": {
+      "en-US": {
+        "title": "Meridian",
+        "subtitle": "TODO_FILL_IN: <=30 chars, e.g. \"Immigration journey & community\"",
+        "description": "TODO_FILL_IN: full App Store description copy",
+        "keywords": ["TODO_FILL_IN"],
+        "marketingUrl": "https://meridianjourney.ai",
+        "supportUrl": "https://meridianjourney.ai/support",
+        "privacyPolicyUrl": "https://meridianjourney.ai/privacy"
+      }
+    },
+    "review": {
+      "firstName": "TODO_FILL_IN",
+      "lastName": "TODO_FILL_IN",
+      "email": "krrishess@gmail.com",
+      "phone": "TODO_FILL_IN: +1XXXXXXXXXX",
+      "demoRequired": true,
+      "demoUsername": "TODO_FILL_IN_AT_SUBMISSION_TIME_NEVER_COMMIT_REAL_CREDENTIALS",
+      "demoPassword": "TODO_FILL_IN_AT_SUBMISSION_TIME_NEVER_COMMIT_REAL_CREDENTIALS",
+      "notes": "Re: Guideline 1.2 — User-Generated Content\n\nThis app includes all required UGC safeguards. Where to find each:\n\nEULA / Terms before registering or logging in. The Sign-Up screen has a required \"I agree to the Terms of Use (EULA) and Privacy Policy … zero tolerance for objectionable content or abusive behavior\" checkbox that must be checked before an account can be created (email, Google, or Apple). The Login screen also shows a \"By continuing you agree to our Terms of Use (EULA) and Privacy Policy\" notice. Both link to the full EULA, whose Section 4 (\"Community Guidelines — Zero Tolerance for Objectionable Content\") states our moderation policy.\n\nFiltering objectionable content. All user posts, replies, and group messages are screened on submission server-side (slur/sexual/violence wordlist + an AI safety classifier). Content that fails is rejected before it is ever stored or shown.\n\nFlag / report content. Every posting, reply, and group message from another user has a \"•••\" (more) control. Tap it → \"Report content\" → choose a reason (harassment, hate speech, violence, sexual/explicit, spam, other). The item is hidden from the reporter immediately, our moderation team is emailed, and content is auto-hidden once multiple users report it.\n\nBlock abusive users. The same \"•••\" menu has \"Block @user\". Blocking removes all of that user's posts, replies, and messages from your feed instantly and emails our moderators to review them.\n\nActing within 24 hours. Reports and blocks notify moderators (moderation@meridianjourney.ai / krrishess@gmail.com). We remove violating content and disable the offending account within 24 hours via an admin takedown tool.\n\nWhere to see it fastest: open the Community tab, tap the ••• on any experience card to Report or Block. It is also available inside a posting's detail view, on each reply, and on each group-chat message.\n\nBefore any data is sent to our AI provider, the app shows an AI data-sharing consent screen (after sign-in) that discloses what is sent (your questions and profile details), who it is sent to (Google's Gemini / Google Cloud AI), and how it is used, and requires an explicit 'Agree & continue'. Users can decline and still use the app, and can toggle AI in Profile → 'AI answers' at any time. Our Privacy Policy (Sections 1 and 6) details this.\n\nDemo account: see Sign-In Information above (fill in before submitting; never commit real credentials to this file)."
+    }
+  }
+}

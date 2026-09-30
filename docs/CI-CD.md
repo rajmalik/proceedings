@@ -6,7 +6,8 @@ GitHub Actions pipeline for the `proceedings` monorepo (`backend/`, `website/`,
 | Workflow | File | Trigger | Purpose |
 |---|---|---|---|
 | **CI** | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | every push / PR to `main`, `proceedings-app` | fast, no-credentials test gate |
-| **Deploy** | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) | `workflow_dispatch` (manual) + approval | gated Cloud Run deploy *(scaffold — see [Deferred](#deferred-gcp-tiers))* |
+| **Deploy** | [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) | `workflow_dispatch` (manual) + approval | gated Cloud Run deploy (backend/website) *(scaffold — see [Deferred](#deferred-gcp-tiers))* |
+| **Mobile Deploy** | [`.github/workflows/mobile-deploy.yml`](../.github/workflows/mobile-deploy.yml) | `workflow_dispatch` (manual) + approval | gated EAS build/submit (iOS) — **live**, see [`docs/MOBILE-APP-STORE-DEPLOYMENT.md`](MOBILE-APP-STORE-DEPLOYMENT.md) |
 
 ## Design principle — tier tests by dependency
 
@@ -70,7 +71,11 @@ if the smoke passes (instant rollback otherwise).
    (and `main`): require status check **`ci-gate`** before merging.
 2. **Approval gate** — Settings ▸ Environments ▸ create **`production`** ▸ add a
    **Required reviewer**. (Optionally limit deployment branches to
-   `main`/`proceedings-app`.)
+   `main`/`proceedings-app`.) `mobile-deploy.yml` reuses this same
+   environment — no separate gate to configure.
+3. **`EXPO_TOKEN` secret** (mobile only) — Settings ▸ Secrets and variables ▸
+   Actions ▸ New repository secret. See
+   [`docs/MOBILE-APP-STORE-DEPLOYMENT.md` §3.1](MOBILE-APP-STORE-DEPLOYMENT.md#31-expo_token--required).
 
 ## Running the gate locally
 

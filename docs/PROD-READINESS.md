@@ -156,16 +156,27 @@ user. **This must not ship to a public production audience.** Before launch:
 
 ---
 
-## 6. Mobile (Expo / EAS) prerequisites — largest gap (never built)
+## 6. Mobile (Expo / EAS) prerequisites
+
+> **Updated — no longer "never built."** The app has already shipped through
+> **two real App Store Review submissions** (build 11 rejected on Guidelines
+> 5.1.1(i)/5.1.2(i)/2.3.6; build 12 fixed and resubmitted — see
+> [`docs/business/app-review-1.2-ugc-response.md`](business/app-review-1.2-ugc-response.md)),
+> and `mobile/eas.json` has existed since commit `e23cab7`. The
+> checklist below is kept for historical accuracy on what was originally
+> flagged, with items struck through/annotated where reality has moved on.
+> **For the current, accurate, step-by-step release process, automation, and
+> a corrected checklist, see
+> [`docs/MOBILE-APP-STORE-DEPLOYMENT.md`](MOBILE-APP-STORE-DEPLOYMENT.md).**
 
 **Accounts & tooling**
-- [ ] **Apple Developer Program** ($99/yr) + App Store Connect app record.
-- [ ] **Google Play Console** ($25 one-time) + app record.
-- [ ] **Expo/EAS** account; `npm i -g eas-cli`; `eas login`.
+- [x] **Apple Developer Program** ($99/yr) + App Store Connect app record — active (proven by the build 11/12 submissions).
+- [ ] **Google Play Console** ($25 one-time) + app record — still not done; full step-by-step now documented in [`docs/MOBILE-PLAY-STORE-DEPLOYMENT.md`](MOBILE-PLAY-STORE-DEPLOYMENT.md) §2.1.
+- [x] **Expo/EAS** account; `eas-cli` is now a pinned `mobile/package.json` devDependency (`eas login` still needed once per machine).
 
 **Project config**
-- [ ] Create **`mobile/eas.json`** (absent) with `development` / `preview` / `production` build profiles + `submit` config.
-- [ ] Finalize **bundle IDs** (D4): iOS `bundleIdentifier`, Android `package`, `version`, `ios.buildNumber`, `android.versionCode`.
+- [x] ~~Create `mobile/eas.json` (absent)~~ — **exists**, has `development` / `preview` / `production` build profiles + `submit` config (6 commits of history since `e23cab7`).
+- [x] **Bundle IDs finalized** (D4): iOS `bundleIdentifier` `com.krishmalik.meridian` (already submitted to Apple twice). `ios.buildNumber` is managed **remotely by EAS** (`eas.json`'s `appVersionSource: "remote"` + `production.autoIncrement: true`) — don't hand-edit it.
 - [ ] **Icons/splash**: regenerate `assets/icon.png`, `splash`, and the **adaptive-icon foreground** from a transparent brand asset (flame-in-ring). *(Only the adaptive background color is on-brand today.)*
 - [ ] **Env**: `EXPO_PUBLIC_API_URL=https://api.meridianjourney.ai`, Firebase config, Google client IDs (§3) — set as EAS build secrets, not committed.
 - [ ] **Permissions strings**: iOS `Info.plist` `NS*UsageDescription` for any camera/photo/notification use; Android permissions in `app.json`.
