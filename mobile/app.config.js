@@ -3,16 +3,11 @@ export default {
 name: "Meridian",
     slug: "meridian",
     owner: "krishmalik",
-    version: "1.1.0",
+    version: "1.2.0",
     scheme: "meridian",
     orientation: "portrait",
-    icon: "./assets/meridian-appstore-logo.png",
+    icon: "./assets/app-icon.png",
     userInterfaceStyle: "light",
-    splash: {
-      image: "./assets/meridian-new-logo-transparent.png",
-      resizeMode: "contain",
-      backgroundColor: "#AE0000"
-    },
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.krishmalik.meridian",
@@ -37,10 +32,9 @@ name: "Meridian",
       package: "com.krishmalik.meridian",
       versionCode: 1,
       adaptiveIcon: {
-        backgroundColor: "#F6F2E9",
-        foregroundImage: "./assets/android-icon-foreground.png",
-        backgroundImage: "./assets/android-icon-background.png",
-        monochromeImage: "./assets/android-icon-monochrome.png"
+        backgroundColor: "#FFFFFF",
+        foregroundImage: "./assets/app-icon-android-foreground.png",
+        monochromeImage: "./assets/app-icon-android-monochrome.png"
       },
       predictiveBackGestureEnabled: false
     },
@@ -49,6 +43,15 @@ name: "Meridian",
     },
     plugins: [
       "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          image: "./assets/splash-logo.png",
+          imageWidth: 200,
+          resizeMode: "contain",
+          backgroundColor: "#AE0000"
+        }
+      ],
       "expo-web-browser",
       "expo-status-bar",
       [

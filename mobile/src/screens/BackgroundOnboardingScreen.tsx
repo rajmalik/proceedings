@@ -9,7 +9,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
-  Dimensions,
 } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeInUp, Layout } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,6 +19,7 @@ import { colors, spacing, borderRadius, typography } from '../constants/theme';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { ChipSelector } from '../components/ChipSelector';
 import { ProgressStepper } from '../components/ProgressStepper';
+import { OnboardingIntro } from '../components/OnboardingIntro';
 import Markdown from '../components/Markdown';
 import {
   VISA_CATEGORIES,
@@ -58,6 +58,8 @@ const GREETING_RETURNING =
   "I'll update the tags for you.";
 
 export function BackgroundOnboardingScreen() {
+  // Step opens on its illustration + headline; the form appears after Next.
+  const [showIntro, setShowIntro] = useState(true);
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const [profile, setProfile] = useState<OnboardingProfile>(createEmptyProfile());
   // All collapsible panels start CLOSED on load.
@@ -308,6 +310,20 @@ export function BackgroundOnboardingScreen() {
     </TouchableOpacity>
   );
 
+  if (showIntro) {
+    return (
+      <OnboardingIntro
+        image={ONBOARDING_IMAGE}
+        imageRatio={ONBOARDING_IMAGE_RATIO}
+        title="Tell us about your journey"
+        subtitle={"This helps us connect you with others in similar situations"}
+        steps={[{ label: 'Background' }, { label: 'Experiences' }]}
+        currentStep={0}
+        onNext={() => setShowIntro(false)}
+      />
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
@@ -319,15 +335,6 @@ export function BackgroundOnboardingScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Onboarding Image */}
-          <View style={styles.imageContainer}>
-            <Image
-              source={require('../../assets/onboardingimage1.png')}
-              style={styles.onboardingImage}
-              resizeMode="contain"
-            />
-          </View>
-
           {/* Header */}
           <Animated.View style={styles.header} entering={FadeInDown.delay(100).duration(400)}>
             {/* Step 1 of 2 — users can finally see how long onboarding is. */}
@@ -735,7 +742,11 @@ export function BackgroundOnboardingScreen() {
   );
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// The illustration's own proportions, read from the asset, so the layout box can
+// never squash it or reserve dead space around it.
+const ONBOARDING_IMAGE = require('../../assets/onboardingimage1.png');
+const { width: IMAGE_W, height: IMAGE_H } = Image.resolveAssetSource(ONBOARDING_IMAGE);
+const ONBOARDING_IMAGE_RATIO = IMAGE_W / IMAGE_H;
 
 const styles = StyleSheet.create({
   container: {
@@ -748,14 +759,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.marginMobile,
     paddingBottom: spacing.xl,
-  },
-  imageContainer: {
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  onboardingImage: {
-    width: SCREEN_WIDTH * 0.7,
-    height: SCREEN_WIDTH * 0.5,
   },
   chatCard: {
     backgroundColor: colors.surfaceContainerLow,

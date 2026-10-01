@@ -24,6 +24,7 @@ export { GlassButton } from './GlassButton';
 export { Header } from './Header';
 export { Input } from './Input';
 export { ProgressStepper } from './ProgressStepper';
+export { OnboardingIntro } from './OnboardingIntro';
 export { Select } from './Select';
 export { AttorneyCard } from './AttorneyCard';
 export { ThreadCard } from './ThreadCard';
