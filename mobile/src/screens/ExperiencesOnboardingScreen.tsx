@@ -10,7 +10,6 @@ import {
   Platform,
   Switch,
   Image,
-  Dimensions,
 } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut, Layout } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Alert, ActivityIndicator } from 'react-native';
 import { colors, spacing, borderRadius, typography } from '../constants/theme';
 import { AnimatedPressable } from '../components/AnimatedPressable';
+import { OnboardingIntro } from '../components/OnboardingIntro';
 import { ProgressStepper } from '../components/ProgressStepper';
 import {
   MILESTONES,
@@ -49,6 +49,8 @@ const GREETING_EXPERIENCES =
   "crossed - these help others going through the same steps (and aren't tagged to your current status).";
 
 export function ExperiencesOnboardingScreen() {
+  // Step opens on its illustration + headline; the form appears after Next.
+  const [showIntro, setShowIntro] = useState(true);
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute<RouteProp<RouteParams, 'ExperiencesOnboarding'>>();
   const { completeOnboarding } = useAuth();
@@ -208,6 +210,20 @@ export function ExperiencesOnboardingScreen() {
     return MILESTONES.find((m) => m.key === key)?.label || key;
   };
 
+  if (showIntro) {
+    return (
+      <OnboardingIntro
+        image={ONBOARDING_IMAGE}
+        imageRatio={ONBOARDING_IMAGE_RATIO}
+        title="Share your experiences"
+        subtitle={"Help others by sharing what you've been through. Your experiences can guide someone in a similar situation."}
+        steps={[{ label: 'Background' }, { label: 'Experiences' }]}
+        currentStep={1}
+        onNext={() => setShowIntro(false)}
+      />
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
@@ -219,15 +235,6 @@ export function ExperiencesOnboardingScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Onboarding Image */}
-          <View style={styles.imageContainer}>
-            <Image
-              source={require('../../assets/onboardingimage2.png')}
-              style={styles.onboardingImage}
-              resizeMode="contain"
-            />
-          </View>
-
           {/* Header */}
           <Animated.View style={styles.header} entering={FadeInDown.delay(100).duration(400)}>
             <AnimatedPressable style={styles.backButton} onPress={handleBack} haptics="light">
@@ -514,7 +521,11 @@ export function ExperiencesOnboardingScreen() {
   );
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// The illustration's own proportions, read from the asset, so the layout box can
+// never squash it or reserve dead space around it.
+const ONBOARDING_IMAGE = require('../../assets/onboardingimage2.png');
+const { width: IMAGE_W, height: IMAGE_H } = Image.resolveAssetSource(ONBOARDING_IMAGE);
+const ONBOARDING_IMAGE_RATIO = IMAGE_W / IMAGE_H;
 
 const styles = StyleSheet.create({
   container: {
@@ -527,14 +538,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.marginMobile,
     paddingBottom: spacing.xl,
-  },
-  imageContainer: {
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  onboardingImage: {
-    width: SCREEN_WIDTH * 0.6,
-    height: SCREEN_WIDTH * 0.4,
   },
   chatCard: {
     backgroundColor: colors.surfaceContainerLow,

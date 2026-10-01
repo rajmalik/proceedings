@@ -649,6 +649,9 @@ export async function suggestTags(
   relevant_sections: string[];
   posting_type: string;
 }> {
+  // Tagging sends the composer's title + description to the AI backend —
+  // gated like every other AI path (App Review 5.1.1(i)/5.1.2(i)).
+  assertAIConsent();
   const response = await apiFetch(`${API_URL}/api/tag-suggest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

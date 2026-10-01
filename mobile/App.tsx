@@ -1,10 +1,10 @@
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
 import {
   NunitoSans_400Regular,
   NunitoSans_500Medium,
@@ -21,7 +21,10 @@ import { MainNavigator } from './src/navigation/MainNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { AIConsentProvider } from './src/contexts/AIConsentContext';
-import { colors } from './src/constants/theme';
+
+// Keep the native splash up until the brand fonts are ready, so the first frame
+// the user sees is the app itself rather than a blank loading screen.
+SplashScreen.preventAutoHideAsync();
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -37,13 +40,15 @@ export default function App() {
     Lora_700Bold,
   });
 
-  // Show loading screen while fonts are loading
+  React.useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded]);
+
+  // Hold the splash screen rather than flashing a blank frame.
   if (!fontsLoaded) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    return null;
   }
 
   return (
@@ -62,11 +67,3 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-});
