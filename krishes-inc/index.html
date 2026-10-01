@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Krishes Inc.</title>
+  <meta name="description" content="Krishes Inc. is an independent AI-powered software company. We design, engineer, and ship AI-powered software, and the applied AI inside it." />
+  <meta name="theme-color" content="#ffffff" />
+
+  <link rel="icon" href="krisheslogo.png" />
+  <link rel="apple-touch-icon" href="krisheslogo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="nav" id="nav">
+    <div class="nav__inner">
+      <a class="nav__brand" href="index.html" aria-current="page" aria-label="Krishes Inc. home">
+        <img class="nav__logo" src="krisheslogo.png" alt="" width="24" height="24" />
+        Krishes
+      </a>
+      <nav class="nav__right" aria-label="Primary">
+        <a class="nav__link" href="about.html">About</a>
+        <a class="nav__link" href="products.html">Products</a>
+        <a class="nav__link" href="services.html">Services</a>
+      </nav>
+      <a class="nav__cta" href="#contact">Contact Us</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero__copy">
+        <p class="eyebrow reveal" style="--i:0">
+          <span class="eyebrow__dot" aria-hidden="true"></span> Independent AI-powered software company
+        </p>
+        <h1 class="hero__title reveal" id="hero-title" style="--i:1">
+          We build AI&#8209;powered software, and the intelligence inside it.
+        </h1>
+        <p class="hero__lede reveal" style="--i:2">
+          Krishes Inc. designs, engineers, and ships products end to end, and
+          builds the applied AI, retrieval and reasoning that make them useful.
+        </p>
+        <div class="hero__cta reveal" style="--i:3">
+          <a class="btn btn--accent btn--lg" href="services.html">Services</a>
+          <a class="link-arrow" href="#contact">Work with us <span aria-hidden="true">&#8594;</span></a>
+        </div>
+        <p class="hero__meta reveal" style="--i:4">
+          <code>design</code> · <code>engineering</code> · <code>applied AI</code>
+        </p>
+      </div>
+
+      <div class="demo reveal" style="--i:2" aria-label="What Krishes Inc. is about, written as code">
+        <figure class="code-card">
+          <figcaption class="code-card__bar">
+            <span class="code-card__file">krishes.py</span>
+          </figcaption>
+          <pre class="code"><code><span class="c-comment"># What Krishes Inc. is about.</span>
+def make(idea):
+    idea  = listen(idea)             <span class="c-comment"># start with the person, not the feature</span>
+    thing = design(idea)             <span class="c-comment"># clarity before cleverness</span>
+    thing = engineer(thing)          <span class="c-comment"># build it to last</span>
+    thing = add_intelligence(thing)  <span class="c-comment"># AI only where it earns its place</span>
+    return ship(thing).keep_improving()</code></pre>
+        </figure>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot-stmt" aria-label="Footer">
+    <p class="foot-stmt__line">AI&#8209;powered software, and the intelligence inside it.</p>
+    <div class="foot-stmt__meta">
+      <span class="foot-stmt__brand">
+        <img class="foot-stmt__logo" src="krisheslogo.png" alt="" width="28" height="28" />
+        Krishes Inc.
+      </span>
+      <span class="foot-stmt__muted">&copy; 2026 Krishes Inc.</span>
+      <code class="foot-stmt__ver">krishes.com</code>
+    </div>
+
+    <section class="contact" id="contact" aria-labelledby="contact-title">
+      <div class="contact__inner">
+        <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot" aria-hidden="true"></span> Work with us</p>
+        <h2 class="contact__title reveal" id="contact-title" style="--i:1">
+          Have something you want built?
+        </h2>
+        <p class="contact__lede reveal" style="--i:2">
+          Tell us what you're working on. We take on a small number of projects
+          at a time.
+        </p>
+        <div class="contact__actions reveal" style="--i:3">
+          <button class="copybtn" type="button" id="copy-email" data-email="team@krishes.com"
+                  aria-label="Copy the Krishes Inc. email address">
+            <span class="copybtn__label">team@krishes.com</span>
+            <span class="copybtn__state" aria-hidden="true">Copy</span>
+          </button>
+        </div>
+      </div>
+    </section>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
